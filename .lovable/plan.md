@@ -1,94 +1,51 @@
-# ChurchCast — Build Plan
 
-A real-time multilingual translation broadcasting platform for churches. Broadcaster speaks → near-real-time transcript → parallel Gemini translations → ElevenLabs TTS → public per-language listener rooms (link + QR, no auth).
+## Goal
 
-## Stack & infra
+Make ChurchCast voice-only. The preacher speaks; the backend transcribes, translates, and synthesizes the destination-language voice. Listeners hear the translated voice and see live captions.
 
-- **Frontend:** TanStack Start (already scaffolded), Tailwind v4, shadcn/ui
-- **Backend:** Lovable Cloud (Supabase) — auth, Postgres, Realtime channels, Storage for audio chunks
-- **Auth:** Google OAuth via Lovable broker (broadcasters only; listeners are anonymous)
-- **STT:** Deepgram streaming WebSocket (lower latency + better streaming than ElevenLabs Scribe for live use)
-- **Translation:** Lovable AI Gateway → `google/gemini-3-flash-preview` (one parallel call per target language)
-- **TTS:** ElevenLabs `eleven_turbo_v2_5` (low latency multilingual), per-language voice mapping
-- **Realtime transport:** Supabase Realtime channels keyed by `session_id:lang` — broadcast translated text + audio chunk URLs; presence tracks listener count
-- **Audio delivery:** TTS MP3 chunks uploaded to Supabase Storage (public bucket), URL broadcast over channel; listener plays sequentially via Web Audio queue
+## Changes
 
-## Data model
+### 1. Frontend — dashboard becomes voice-only
+- Remove the "type to broadcast" textarea, send button, and `⌘/Ctrl+Enter` handler from `LiveBroadcast.tsx`.
+- Promote `MicCapture` to the primary control: prominent "Start broadcasting" / "Stop" mic button with live level meter and recording state.
+- Keep the source-language live transcript panel (now populated by Whisper) and the per-language room cards.
+- Each captured audio chunk is uploaded + sent to a `processChunk` server fn which runs STT → fan-out translate → TTS, then inserts a `transcripts` row per language with an `audio_url`.
 
-```
-profiles           (id → auth.users, display_name, email, avatar_url)
-sessions           (id, broadcaster_id, church_name, source_lang, target_langs[], context, status, started_at, ended_at)
-transcripts        (id, session_id, lang, text, is_source, created_at)   -- append-only log for replay/history
-```
+### 2. Frontend — listener room
+- Audio-first: big "Tap to listen" pill that unlocks autoplay, then sequentially plays each new `audio_url` arriving on the realtime channel via a Web Audio queue.
+- Live captions: translated text fades in below the player as each chunk arrives (already plumbed via `transcripts` realtime; just render).
 
-Public read on transcripts (RLS). Sessions readable by anyone when status='live' (for listener page metadata).
+### 3. Backend pipeline (TanStack server functions, all on Lovable Cloud)
+New file `src/lib/pipeline.functions.ts`:
+- `processAudioChunk({ sessionId, audioBase64, mimeType })` — auth-gated to the session's broadcaster.
+  1. **STT**: POST audio to OpenAI `audio/transcriptions` (`whisper-1`), language = session.source_lang. Insert source-language `transcripts` row.
+  2. **Translate (parallel)**: for each `target_lang`, call Lovable AI Gateway (`google/gemini-3-flash-preview`) — keeps existing `translateChunk` logic.
+  3. **TTS (parallel)**: for each translation, POST to OpenAI `audio/speech` (`gpt-4o-mini-tts`, voice `alloy`, format `mp3`).
+  4. Upload each MP3 to a new public Storage bucket `broadcast-audio` at `{sessionId}/{lang}/{uuid}.mp3`.
+  5. Insert one `transcripts` row per target language with `text` + `audio_url`.
 
-## Pipeline (broadcaster side, runs in browser)
+All three providers run inside one server fn so a single round-trip from the browser per chunk delivers everything via realtime to listeners.
 
-```
-mic / device input / mp3 file
-   ↓  MediaRecorder → 3s opus chunks
-   ↓  WebSocket → server fn → Deepgram streaming
-   ↓  partial transcript chunks emitted
-   ↓  for each target lang in parallel:
-        Gemini translate (with context system prompt)
-        ElevenLabs TTS (turbo v2.5) → mp3 bytes
-        upload to Storage → broadcast {text, audio_url, seq} on `session:{id}:{lang}` channel
-```
+### 4. Storage + secrets
+- Create public Storage bucket `broadcast-audio` with broadcaster-only insert policy and public read.
+- Add secret `OPENAI_API_KEY` (used for both Whisper and TTS).
 
-Server functions handle Deepgram (needs API key), Gemini, ElevenLabs, and Storage uploads. Browser owns audio capture + chunking + orchestration.
+### 5. MicCapture cleanup
+- Keep silence-boundary chunking (already implemented).
+- Replace local queue/preview UI with auto-upload-on-finalize calling `processAudioChunk`. Show per-chunk status (uploading → transcribing → broadcasting → done / error).
 
-## Routes
+### 6. Files
+- Edit: `src/components/dashboard/LiveBroadcast.tsx`, `src/components/dashboard/MicCapture.tsx`, `src/components/dashboard/LanguageRoomCard.tsx` (remove text-typing affordances if any), `src/routes/room.$sessionId.$lang.tsx` (audio queue + captions).
+- Create: `src/lib/pipeline.functions.ts`, `src/lib/audio-queue.ts` (listener-side sequential MP3 player).
+- Delete: nothing structural; `translateChunk` stays as a helper but is no longer called from the browser.
+- Migration: create `broadcast-audio` bucket + storage policies.
 
-```
-/                            marketing landing (hero, "Sign in to broadcast")
-/auth                        Google sign-in
-/_authenticated/dashboard    broadcaster dashboard (setup + live panel + past sessions)
-/room/$sessionId/$lang       public listener room (QR target)
-/api/public/stt              POST audio chunk → returns transcript (Deepgram)
-                             (server fn for translate + tts called from browser)
-```
+## Tradeoffs / notes
 
-## UI direction
-
-- **Aesthetic:** deep navy/charcoal base, warm stained-glass accents (amber, deep rose, teal), elegant serif (Cormorant Garamond) for headings/room names, Inter for UI
-- **Dashboard:** command-center grid — left: setup form, right: live transcript + per-language cards (each with QR, URL copy, listener count, mini scrolling translation)
-- **Listener room:** mobile-first, centered, big "Tap to Listen" pill, large fading transcript lines, live indicator dot
-- **Past sessions:** simple table below dashboard
-
-## Build order
-
-1. Enable Lovable Cloud + ElevenLabs connector; add Deepgram + Gemini keys (Gemini via Lovable AI Gateway, no user key needed)
-2. Design system in `src/styles.css` (palette, fonts, gradient/glow tokens)
-3. DB migration: profiles, sessions, transcripts + RLS + grants + auth trigger
-4. Landing page + Google auth + `_authenticated` layout (already managed by integration)
-5. Dashboard: session setup form, device enumeration, context field
-6. Server fns: `translateChunk` (Gemini), `synthesizeTts` (ElevenLabs → Storage), `transcribeChunk` (Deepgram REST for MVP — see note)
-7. Broadcaster orchestrator: MediaRecorder 3s loop → STT → fan-out translate+TTS → publish to realtime
-8. Listener room: subscribe to channel, audio queue player, scrolling transcript, presence count
-9. QR generation (`qrcode` lib) + share URL copy
-10. Past sessions list
-11. SEO: sitemap, robots, route metadata
-
-## Technical notes / tradeoffs
-
-- **STT:** Using Deepgram REST with 3s chunks (simpler than wiring a browser↔server↔Deepgram WebSocket tunnel through a serverless worker, which has connection-lifetime limits). True streaming can be a v2 upgrade. Latency target 3–6s is achievable with REST + chunking.
-- **Audio delivery:** Chunked MP3 over Storage URLs (broadcast via Realtime) instead of a binary WebSocket — works inside the serverless worker constraints and gives listeners automatic CDN + replay.
-- **Parallel translation:** `Promise.all` over target langs inside the orchestrator; each lang has independent latency.
-- **Worker runtime:** No `child_process`/native bins; all server fns use `fetch`. ✓
-- **Secrets needed:** `DEEPGRAM_API_KEY` (will prompt user), `ELEVENLABS_API_KEY` (via connector), `LOVABLE_API_KEY` (auto for Gemini)
-
-## What I'll ask the user before/during build
-
-- Confirm Deepgram is OK for STT (vs. waiting on ElevenLabs Scribe realtime which is newer/less battle-tested). If they prefer ElevenLabs, we use Scribe v2 realtime.
-- They'll need to provide a Deepgram API key when we get to the STT step.
-
-## Out of scope for v1
-
-- Session recording/playback
-- Listener-side language switching mid-session
-- Custom voice per broadcaster
-- Payment/tiers
-- Native mobile app
+- **Latency budget per chunk**: Whisper ~1–2s + Gemini translate ~0.5–1s + OpenAI TTS ~1–2s per language, in parallel = ~3–5s end-to-end per sentence. Well under 10s.
+- **Chunking**: silence-boundary (already chosen). 1.2–8s sentences.
+- **Cost**: OpenAI is billed to the user's `OPENAI_API_KEY`. Gemini translation stays on Lovable AI Gateway.
+- **Public route SSR**: `room.$sessionId.$lang.tsx` keeps SSR for the page shell + OG tags; realtime + audio queue mount client-side.
+- **No live mic streaming protocol** (WebSocket/Deepgram) in v1; sentence-chunked REST keeps things robust on the Cloudflare Worker runtime.
 
 Ready to build on approval.
