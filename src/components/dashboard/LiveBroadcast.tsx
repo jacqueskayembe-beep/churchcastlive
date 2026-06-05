@@ -124,7 +124,7 @@ export function LiveBroadcast({ session, onStop }: Props) {
       </div>
 
       <div>
-        <h2 className="font-display text-2xl mb-4">Translation rooms</h2>
+        <h2 className="font-display text-2xl mb-4">Translation booths</h2>
         <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
           {session.target_langs.map((lang) => (
             <LanguageRoomCard
