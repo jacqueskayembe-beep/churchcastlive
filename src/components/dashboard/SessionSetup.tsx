@@ -174,14 +174,6 @@ export function SessionSetup({ onStart }: Props) {
         </div>
       </div>
 
-      <div className="mt-6 flex items-start gap-2 text-xs text-muted-foreground surface-elevated border border-border rounded-md p-3">
-        <Info className="size-4 mt-0.5 shrink-0 text-primary" />
-        <p>
-          Translation is live (powered by Gemini). Speech-to-text and audio synthesis are <strong>mocked</strong> in this build —
-          you can broadcast translations by typing into the live panel after starting. Connect ElevenLabs to enable real voice in &amp; out.
-        </p>
-      </div>
-
       <button
         onClick={handleStart}
         disabled={starting}
