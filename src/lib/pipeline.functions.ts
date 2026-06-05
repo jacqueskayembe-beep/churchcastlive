@@ -148,7 +148,7 @@ export const processAudioChunk = createServerFn({ method: "POST" })
               "Lovable-API-Key": lovableKey,
             },
             body: JSON.stringify({
-              model: "google/gemini-3.1-flash-preview",
+              model: "google/gemini-2.5-pro",
               messages: [
                 { role: "system", content: sysPrompt },
                 { role: "user", content: sourceText },
