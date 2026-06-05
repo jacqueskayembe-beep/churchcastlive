@@ -14,7 +14,116 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          created_at: string
+          display_name: string | null
+          email: string | null
+          id: string
+          updated_at: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string
+          display_name?: string | null
+          email?: string | null
+          id: string
+          updated_at?: string
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string
+          display_name?: string | null
+          email?: string | null
+          id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      sessions: {
+        Row: {
+          broadcaster_id: string
+          church_name: string | null
+          context: string | null
+          created_at: string
+          ended_at: string | null
+          id: string
+          source_lang: string
+          started_at: string
+          status: string
+          target_langs: string[]
+          updated_at: string
+        }
+        Insert: {
+          broadcaster_id: string
+          church_name?: string | null
+          context?: string | null
+          created_at?: string
+          ended_at?: string | null
+          id?: string
+          source_lang: string
+          started_at?: string
+          status?: string
+          target_langs?: string[]
+          updated_at?: string
+        }
+        Update: {
+          broadcaster_id?: string
+          church_name?: string | null
+          context?: string | null
+          created_at?: string
+          ended_at?: string | null
+          id?: string
+          source_lang?: string
+          started_at?: string
+          status?: string
+          target_langs?: string[]
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      transcripts: {
+        Row: {
+          audio_url: string | null
+          created_at: string
+          id: string
+          is_source: boolean
+          lang: string
+          seq: number
+          session_id: string
+          text: string
+        }
+        Insert: {
+          audio_url?: string | null
+          created_at?: string
+          id?: string
+          is_source?: boolean
+          lang: string
+          seq?: number
+          session_id: string
+          text: string
+        }
+        Update: {
+          audio_url?: string | null
+          created_at?: string
+          id?: string
+          is_source?: boolean
+          lang?: string
+          seq?: number
+          session_id?: string
+          text?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "transcripts_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
