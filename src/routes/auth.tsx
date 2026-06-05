@@ -68,7 +68,7 @@ function AuthPage() {
           {loading ? "Signing in..." : "Continue with Google"}
         </button>
         <p className="mt-6 text-xs text-muted-foreground">
-          Listeners don't need an account — just share a room link.
+          Listeners don't need an account — just share a booth link.
         </p>
       </div>
     </div>
