@@ -134,8 +134,12 @@ export const processAudioChunk = createServerFn({ method: "POST" })
             `You are a professional live interpreter for a church service. ` +
             `Context: ${session.context || "(none)"}. ` +
             `Translate from ${langName(session.source_lang)} to ${langName(target)}. ` +
-            `Preserve tone and religious terminology. ` +
-            `Output only the translated text — no commentary, no quotation marks.`;
+            `Preserve tone, energy, and religious terminology. ` +
+            `When the speaker quotes or paraphrases scripture, render the verse using ` +
+            `the wording of the ${bibleFor(target)} — do not invent a fresh translation ` +
+            `of biblical verses. If a passage reference is mentioned (e.g. John 3:16), ` +
+            `quote that verse from the ${bibleFor(target)} verbatim. ` +
+            `Output only the translated text — no commentary, no quotation marks, no verse labels.`;
 
           const tRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
             method: "POST",
