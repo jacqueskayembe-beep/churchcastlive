@@ -15,7 +15,6 @@ import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as RoomSessionIdLangRouteImport } from './routes/room.$sessionId.$lang'
-import { Route as ApiPublicTtsIdRouteImport } from './routes/api/public/tts.$id'
 
 const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
   id: '/sitemap.xml',
@@ -46,11 +45,6 @@ const RoomSessionIdLangRoute = RoomSessionIdLangRouteImport.update({
   path: '/room/$sessionId/$lang',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiPublicTtsIdRoute = ApiPublicTtsIdRouteImport.update({
-  id: '/api/public/tts/$id',
-  path: '/api/public/tts/$id',
-  getParentRoute: () => rootRouteImport,
-} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -58,7 +52,6 @@ export interface FileRoutesByFullPath {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/room/$sessionId/$lang': typeof RoomSessionIdLangRoute
-  '/api/public/tts/$id': typeof ApiPublicTtsIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -66,7 +59,6 @@ export interface FileRoutesByTo {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/room/$sessionId/$lang': typeof RoomSessionIdLangRoute
-  '/api/public/tts/$id': typeof ApiPublicTtsIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -76,7 +68,6 @@ export interface FileRoutesById {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/room/$sessionId/$lang': typeof RoomSessionIdLangRoute
-  '/api/public/tts/$id': typeof ApiPublicTtsIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -86,15 +77,8 @@ export interface FileRouteTypes {
     | '/sitemap.xml'
     | '/dashboard'
     | '/room/$sessionId/$lang'
-    | '/api/public/tts/$id'
   fileRoutesByTo: FileRoutesByTo
-  to:
-    | '/'
-    | '/auth'
-    | '/sitemap.xml'
-    | '/dashboard'
-    | '/room/$sessionId/$lang'
-    | '/api/public/tts/$id'
+  to: '/' | '/auth' | '/sitemap.xml' | '/dashboard' | '/room/$sessionId/$lang'
   id:
     | '__root__'
     | '/'
@@ -103,7 +87,6 @@ export interface FileRouteTypes {
     | '/sitemap.xml'
     | '/_authenticated/dashboard'
     | '/room/$sessionId/$lang'
-    | '/api/public/tts/$id'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -112,7 +95,6 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   RoomSessionIdLangRoute: typeof RoomSessionIdLangRoute
-  ApiPublicTtsIdRoute: typeof ApiPublicTtsIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -159,13 +141,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RoomSessionIdLangRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/public/tts/$id': {
-      id: '/api/public/tts/$id'
-      path: '/api/public/tts/$id'
-      fullPath: '/api/public/tts/$id'
-      preLoaderRoute: typeof ApiPublicTtsIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
   }
 }
 
@@ -186,8 +161,17 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
   RoomSessionIdLangRoute: RoomSessionIdLangRoute,
-  ApiPublicTtsIdRoute: ApiPublicTtsIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
