@@ -20,9 +20,9 @@ interface Props {
 // Silence detection thresholds — aim for full sentences/paragraphs (~60s),
 // finalize on a natural pause rather than slicing speech into fragments.
 const SILENCE_RMS = 0.012;
-const SILENCE_MS = 1600;       // wait for a real pause (~1.6s of silence)
-const MIN_CHUNK_MS = 15000;    // don't ship anything shorter than ~15s
-const MAX_CHUNK_MS = 60000;    // hard cap at 60s so listeners aren't waiting too long
+const SILENCE_MS = 500;        // finalize on a brief natural pause (~0.5s)
+const MIN_CHUNK_MS = 15000;    // build at least ~15s of audio before looking for a pause
+const MAX_CHUNK_MS = 20000;    // hard cap shortly after 15s so listeners aren't waiting
 const TIMESLICE_MS = 500;
 
 function blobToBase64(blob: Blob): Promise<string> {
