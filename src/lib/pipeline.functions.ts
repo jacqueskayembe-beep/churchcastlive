@@ -16,6 +16,32 @@ const LANG_NAMES: Record<string, string> = {
 };
 const langName = (c: string) => LANG_NAMES[c] ?? c;
 
+// Canonical Bible version per language — used when the preacher quotes scripture
+// so verses are rendered in the edition the congregation recognizes.
+const BIBLE_VERSION: Record<string, string> = {
+  en: "King James Version (KJV)",
+  fr: "Louis Segond (LSG)",
+  es: "Reina-Valera 1960 (RVR1960)",
+  de: "Lutherbibel 2017",
+  pt: "Almeida Revista e Atualizada (ARA)",
+  it: "Nuova Riveduta 2006",
+  nl: "Statenvertaling",
+  pl: "Biblia Tysiąclecia",
+  ru: "Synodal Translation (Синодальный перевод)",
+  uk: "Ukrainian Bible — Ivan Ohienko Translation",
+  zh: "Chinese Union Version (和合本)",
+  ja: "新共同訳 (Shinkyōdōyaku)",
+  ko: "개역개정 (Revised Korean Version)",
+  vi: "Kinh Thánh Bản Truyền Thống (Vietnamese Traditional)",
+  hi: "Hindi Bible — Pavitra Bible (IRV)",
+  ar: "Smith & Van Dyke Arabic Bible (الفاندايك)",
+  he: "Modern Hebrew Bible / Delitzsch New Testament",
+  tr: "Kutsal Kitap (Yeni Çeviri)",
+  sw: "Swahili Union Version (SUV)",
+  tl: "Ang Biblia (Tagalog Popular Version)",
+};
+const bibleFor = (c: string) => BIBLE_VERSION[c] ?? "the most widely used local Bible translation";
+
 // Map our language codes → OpenAI TTS voices.
 // MALE voices only: onyx (deep), echo (warm), ash (bright), fable (British).
 function voiceFor(lang: string): string {
