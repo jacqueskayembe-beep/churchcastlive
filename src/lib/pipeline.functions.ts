@@ -165,66 +165,27 @@ export const processAudioChunk = createServerFn({ method: "POST" })
           const translation = (tJson.choices?.[0]?.message?.content ?? "").trim();
           if (!translation) return { lang: target, error: "Empty translation" };
 
-          // TTS via OpenAI — match the preacher's energy and tone
-          const ttsInstructions =
-            `You are a male interpreter voicing a live church sermon. ` +
-            `Match the preacher's energy: if the text is exclamatory, emphatic, ` +
-            `or full of praise (exclamation marks, ALL CAPS, "Hallelujah", "Amen", repeated words), ` +
-            `speak with passion, excitement, and lifted volume. ` +
-            `If the text is reflective, prayerful, or scriptural, speak warmly, ` +
-            `slowly, and reverently. Always sound like a confident male preacher — ` +
-            `never flat, never robotic. Preserve natural pauses at punctuation.`;
+          // Insert transcript row first with a deterministic id, then point
+          // audio_url at our streaming TTS endpoint. The listener's
+          // HTMLAudioElement will progressively download the MP3 as OpenAI
+          // synthesizes it — no wait for full file + storage upload.
+          const transcriptId = crypto.randomUUID();
+          const audioUrl = `/api/public/tts/${transcriptId}`;
 
-          const ttsRes = await fetch("https://api.openai.com/v1/audio/speech", {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${openaiKey}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              model: "gpt-4o-mini-tts",
-              input: translation,
-              voice: voiceFor(target),
-              instructions: ttsInstructions,
-              response_format: "mp3",
-            }),
-          });
-          if (!ttsRes.ok) {
-            const txt = await ttsRes.text();
-            console.error(`tts ${target}`, ttsRes.status, txt.slice(0, 200));
-            return { lang: target, error: `TTS ${ttsRes.status}` };
-          }
-          const mp3Bytes = new Uint8Array(await ttsRes.arrayBuffer());
-
-          // Upload to Storage via admin client
-          const key = `${session.id}/${target}/${crypto.randomUUID()}.mp3`;
-          const { error: upErr } = await supabaseAdmin.storage
-            .from("broadcast-audio")
-            .upload(key, mp3Bytes, { contentType: "audio/mpeg", upsert: false });
-          if (upErr) {
-            console.error("upload", upErr);
-            return { lang: target, error: "Upload failed" };
-          }
-
-          // Signed URL (24h)
-          const { data: signed, error: signErr } = await supabaseAdmin.storage
-            .from("broadcast-audio")
-            .createSignedUrl(key, 60 * 60 * 24);
-          if (signErr || !signed) {
-            console.error("sign", signErr);
-            return { lang: target, error: "Sign failed" };
-          }
-
-          // Insert transcript row (use admin to bypass RLS — we've already verified auth)
-          await supabaseAdmin.from("transcripts").insert({
+          const { error: insErr } = await supabaseAdmin.from("transcripts").insert({
+            id: transcriptId,
             session_id: session.id,
             lang: target,
             text: translation,
             is_source: false,
-            audio_url: signed.signedUrl,
+            audio_url: audioUrl,
           });
+          if (insErr) {
+            console.error("insert transcript", insErr);
+            return { lang: target, error: "Insert failed" };
+          }
 
-          return { lang: target, translation, audioUrl: signed.signedUrl };
+          return { lang: target, translation, audioUrl };
         } catch (e) {
           console.error(`pipeline ${target}`, e);
           return { lang: target, error: (e as Error).message };
