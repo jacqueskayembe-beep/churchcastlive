@@ -120,6 +120,7 @@ function Dashboard() {
             onClick={handleSignOut}
             className="p-2 rounded-md hover:bg-secondary transition"
             title="Sign out"
+            aria-label="Sign out"
           >
             <LogOut className="size-4" />
           </button>
