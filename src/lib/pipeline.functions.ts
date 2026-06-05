@@ -16,15 +16,16 @@ const LANG_NAMES: Record<string, string> = {
 };
 const langName = (c: string) => LANG_NAMES[c] ?? c;
 
-// Map our language codes → OpenAI TTS voices (all OpenAI voices are multilingual; pick varied ones)
+// Map our language codes → OpenAI TTS voices.
+// MALE voices only: onyx (deep), echo (warm), ash (bright), fable (British).
 function voiceFor(lang: string): string {
   const map: Record<string, string> = {
-    en: "alloy", es: "nova", fr: "shimmer", de: "echo", pt: "nova",
-    it: "shimmer", nl: "alloy", pl: "onyx", ru: "onyx", uk: "nova",
-    zh: "shimmer", ja: "nova", ko: "shimmer", vi: "alloy", hi: "nova",
-    ar: "onyx", he: "alloy", tr: "echo", sw: "nova", tl: "shimmer",
+    en: "onyx", es: "onyx", fr: "echo", de: "onyx", pt: "echo",
+    it: "echo", nl: "onyx", pl: "onyx", ru: "onyx", uk: "onyx",
+    zh: "echo", ja: "echo", ko: "echo", vi: "echo", hi: "onyx",
+    ar: "onyx", he: "onyx", tr: "echo", sw: "onyx", tl: "echo",
   };
-  return map[lang] ?? "alloy";
+  return map[lang] ?? "onyx";
 }
 
 function base64ToBytes(b64: string): Uint8Array {
@@ -134,7 +135,16 @@ export const processAudioChunk = createServerFn({ method: "POST" })
           const translation = (tJson.choices?.[0]?.message?.content ?? "").trim();
           if (!translation) return { lang: target, error: "Empty translation" };
 
-          // TTS via OpenAI
+          // TTS via OpenAI — match the preacher's energy and tone
+          const ttsInstructions =
+            `You are a male interpreter voicing a live church sermon. ` +
+            `Match the preacher's energy: if the text is exclamatory, emphatic, ` +
+            `or full of praise (exclamation marks, ALL CAPS, "Hallelujah", "Amen", repeated words), ` +
+            `speak with passion, excitement, and lifted volume. ` +
+            `If the text is reflective, prayerful, or scriptural, speak warmly, ` +
+            `slowly, and reverently. Always sound like a confident male preacher — ` +
+            `never flat, never robotic. Preserve natural pauses at punctuation.`;
+
           const ttsRes = await fetch("https://api.openai.com/v1/audio/speech", {
             method: "POST",
             headers: {
@@ -145,6 +155,7 @@ export const processAudioChunk = createServerFn({ method: "POST" })
               model: "gpt-4o-mini-tts",
               input: translation,
               voice: voiceFor(target),
+              instructions: ttsInstructions,
               response_format: "mp3",
             }),
           });
