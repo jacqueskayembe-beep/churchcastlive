@@ -1,33 +1,47 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Mic, MicOff, Trash2, AudioLines } from "lucide-react";
+import { Mic, MicOff, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { processAudioChunk } from "@/lib/pipeline.functions";
 
-interface QueuedChunk {
+interface ChunkStatus {
   id: string;
-  blob: Blob;
+  state: "uploading" | "done" | "error";
   durationMs: number;
   recordedAt: number;
-  url: string;
+  error?: string;
+  text?: string;
 }
 
 interface Props {
-  /** Device id from SessionSetup (optional) */
+  sessionId: string;
   deviceId?: string;
-  /** Called when a chunk is finalized — wire this up to STT later. */
-  onChunk?: (chunk: QueuedChunk) => void;
 }
 
 // Silence detection thresholds
-const SILENCE_RMS = 0.012;          // anything below this counts as silence
-const SILENCE_MS = 700;             // silence duration that ends a sentence
-const MIN_CHUNK_MS = 1200;          // ignore micro-bursts
-const MAX_CHUNK_MS = 8000;          // hard cap so latency stays < 10s
-const TIMESLICE_MS = 250;           // MediaRecorder slice cadence
+const SILENCE_RMS = 0.012;
+const SILENCE_MS = 700;
+const MIN_CHUNK_MS = 1200;
+const MAX_CHUNK_MS = 8000;
+const TIMESLICE_MS = 250;
 
-export function MicCapture({ deviceId, onChunk }: Props) {
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onloadend = () => {
+      const result = r.result as string;
+      // strip "data:...;base64,"
+      const comma = result.indexOf(",");
+      resolve(comma >= 0 ? result.slice(comma + 1) : result);
+    };
+    r.onerror = reject;
+    r.readAsDataURL(blob);
+  });
+}
+
+export function MicCapture({ sessionId, deviceId }: Props) {
   const [recording, setRecording] = useState(false);
   const [level, setLevel] = useState(0);
-  const [queue, setQueue] = useState<QueuedChunk[]>([]);
+  const [statuses, setStatuses] = useState<ChunkStatus[]>([]);
 
   const streamRef = useRef<MediaStream | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -53,12 +67,32 @@ export function MicCapture({ deviceId, onChunk }: Props) {
     setLevel(0);
   }, []);
 
-  useEffect(() => () => { teardown(); queue.forEach((c) => URL.revokeObjectURL(c.url)); }, [teardown]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => { teardown(); }, [teardown]);
+
+  const uploadChunk = useCallback(async (blob: Blob, durationMs: number) => {
+    const id = crypto.randomUUID();
+    setStatuses((p) => [...p, { id, state: "uploading", durationMs, recordedAt: Date.now() }].slice(-12));
+    try {
+      const base64 = await blobToBase64(blob);
+      const result = await processAudioChunk({
+        data: { sessionId, audioBase64: base64, mimeType: blob.type || "audio/webm" },
+      });
+      if (!result.ok) {
+        setStatuses((p) => p.map((s) => s.id === id ? { ...s, state: "error", error: result.error } : s));
+        toast.error(result.error);
+      } else {
+        setStatuses((p) => p.map((s) => s.id === id ? { ...s, state: "done", text: result.sourceText } : s));
+      }
+    } catch (e) {
+      const msg = (e as Error).message;
+      setStatuses((p) => p.map((s) => s.id === id ? { ...s, state: "error", error: msg } : s));
+      toast.error("Failed to process audio chunk.");
+    }
+  }, [sessionId]);
 
   const finalizeCurrent = useCallback(() => {
     const rec = recorderRef.current;
     if (!rec || rec.state === "inactive") return;
-    // stop() flushes a final dataavailable — wait for it via the cycleResolver
     return new Promise<void>((resolve) => {
       cycleResolverRef.current = resolve;
       try { rec.stop(); } catch { resolve(); }
@@ -85,22 +119,14 @@ export function MicCapture({ deviceId, onChunk }: Props) {
 
       if (hasVoiceRef.current && durationMs >= MIN_CHUNK_MS && blobs.length > 0) {
         const blob = new Blob(blobs, { type: rec.mimeType || "audio/webm" });
-        const chunk: QueuedChunk = {
-          id: crypto.randomUUID(),
-          blob,
-          durationMs,
-          recordedAt: Date.now(),
-          url: URL.createObjectURL(blob),
-        };
-        setQueue((q) => [...q, chunk]);
-        onChunk?.(chunk);
+        uploadChunk(blob, durationMs);
       }
       resolver?.();
     };
 
     rec.start(TIMESLICE_MS);
     recorderRef.current = rec;
-  }, [onChunk]);
+  }, [uploadChunk]);
 
   const start = useCallback(async () => {
     try {
@@ -176,101 +202,72 @@ export function MicCapture({ deviceId, onChunk }: Props) {
     setRecording(false);
   }, [finalizeCurrent, teardown]);
 
-  const removeChunk = (id: string) => {
-    setQueue((q) => {
-      const target = q.find((c) => c.id === id);
-      if (target) URL.revokeObjectURL(target.url);
-      return q.filter((c) => c.id !== id);
-    });
-  };
-
-  const clearAll = () => {
-    queue.forEach((c) => URL.revokeObjectURL(c.url));
-    setQueue([]);
-  };
-
   return (
-    <div className="surface-elevated border border-border rounded-2xl p-4 space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={recording ? stop : start}
-            className={`size-12 rounded-full grid place-items-center transition shadow-card ${
-              recording
-                ? "bg-rose-glow text-white animate-pulse-dot"
-                : "bg-primary text-primary-foreground hover:opacity-90"
-            }`}
-            aria-label={recording ? "Stop recording" : "Start recording"}
-          >
-            {recording ? <MicOff className="size-5" /> : <Mic className="size-5" />}
-          </button>
-          <div>
-            <p className="text-sm font-medium">
-              {recording ? "Listening…" : "Microphone idle"}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Chunks auto-finalize on a {SILENCE_MS}ms pause (max {MAX_CHUNK_MS / 1000}s).
-            </p>
+    <div className="surface-elevated border border-border rounded-2xl p-6 space-y-5">
+      <div className="flex items-center gap-5">
+        <button
+          onClick={recording ? stop : start}
+          className={`size-20 rounded-full grid place-items-center transition shadow-glow ${
+            recording
+              ? "bg-rose-glow text-white animate-pulse-dot"
+              : "bg-amber-gradient text-primary-foreground hover:opacity-90"
+          }`}
+          aria-label={recording ? "Stop broadcasting" : "Start broadcasting"}
+        >
+          {recording ? <MicOff className="size-8" /> : <Mic className="size-8" />}
+        </button>
+        <div className="flex-1">
+          <p className="font-display text-2xl">
+            {recording ? "Broadcasting…" : "Tap to start broadcasting"}
+          </p>
+          <p className="text-xs text-muted-foreground mt-1">
+            Speech is transcribed, translated, and spoken aloud automatically for every listener.
+          </p>
+          {/* Level meter */}
+          <div className="flex items-center gap-1.5 h-6 mt-3" aria-hidden>
+            {Array.from({ length: 20 }).map((_, i) => {
+              const active = level * 20 > i;
+              return (
+                <span
+                  key={i}
+                  className={`w-1 rounded-full transition-all ${active ? "bg-primary" : "bg-border"}`}
+                  style={{ height: `${6 + i * 0.8}px`, opacity: active ? 1 : 0.4 }}
+                />
+              );
+            })}
           </div>
-        </div>
-
-        {/* Level meter */}
-        <div className="flex items-center gap-1.5 h-8" aria-hidden>
-          {Array.from({ length: 12 }).map((_, i) => {
-            const active = level * 12 > i;
-            return (
-              <span
-                key={i}
-                className={`w-1 rounded-full transition-all ${active ? "bg-primary" : "bg-border"}`}
-                style={{ height: `${8 + i * 1.6}px`, opacity: active ? 1 : 0.5 }}
-              />
-            );
-          })}
         </div>
       </div>
 
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <h3 className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-            <AudioLines className="size-3.5" /> Local chunk queue ({queue.length})
+      {statuses.length > 0 && (
+        <div>
+          <h3 className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
+            Recent chunks
           </h3>
-          {queue.length > 0 && (
-            <button
-              onClick={clearAll}
-              className="text-xs text-muted-foreground hover:text-foreground transition"
-            >
-              Clear all
-            </button>
-          )}
-        </div>
-        {queue.length === 0 ? (
-          <p className="text-xs text-muted-foreground italic">
-            No chunks yet. Recordings will queue here until speech-to-text is wired up.
-          </p>
-        ) : (
           <ul className="space-y-1.5 max-h-48 overflow-y-auto">
-            {queue.map((c, i) => (
+            {statuses.slice().reverse().map((s) => (
               <li
-                key={c.id}
-                className="flex items-center gap-3 bg-background/40 border border-border rounded-lg px-3 py-2 animate-fade-up"
+                key={s.id}
+                className="flex items-center gap-3 bg-background/40 border border-border rounded-lg px-3 py-2 text-sm animate-fade-up"
               >
-                <span className="text-xs font-mono text-muted-foreground w-8">#{i + 1}</span>
-                <audio src={c.url} controls className="h-8 flex-1 min-w-0" />
-                <span className="text-xs text-muted-foreground tabular-nums">
-                  {(c.durationMs / 1000).toFixed(1)}s
+                <span className="shrink-0">
+                  {s.state === "uploading" && <Loader2 className="size-4 animate-spin text-primary" />}
+                  {s.state === "done" && <CheckCircle2 className="size-4 text-emerald-400" />}
+                  {s.state === "error" && <AlertCircle className="size-4 text-destructive" />}
                 </span>
-                <button
-                  onClick={() => removeChunk(c.id)}
-                  className="text-muted-foreground hover:text-destructive transition"
-                  aria-label="Remove chunk"
-                >
-                  <Trash2 className="size-4" />
-                </button>
+                <span className="flex-1 min-w-0 truncate text-muted-foreground">
+                  {s.state === "done" ? (s.text || "(no speech detected)") :
+                   s.state === "error" ? s.error :
+                   "Transcribing & translating…"}
+                </span>
+                <span className="text-xs text-muted-foreground tabular-nums shrink-0">
+                  {(s.durationMs / 1000).toFixed(1)}s
+                </span>
               </li>
             ))}
           </ul>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
