@@ -75,6 +75,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { property: "og:title", content: "ChurchCast — Real-Time Multilingual Translation" },
       { property: "og:description", content: "Broadcast your service in any language. Live, AI-powered translation for every listener." },
       { property: "og:type", content: "website" },
+      { property: "og:site_name", content: "ChurchCast" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
     links: [{ rel: "stylesheet", href: appCss }],
