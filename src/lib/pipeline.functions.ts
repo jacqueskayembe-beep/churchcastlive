@@ -135,7 +135,16 @@ export const processAudioChunk = createServerFn({ method: "POST" })
           const translation = (tJson.choices?.[0]?.message?.content ?? "").trim();
           if (!translation) return { lang: target, error: "Empty translation" };
 
-          // TTS via OpenAI
+          // TTS via OpenAI — match the preacher's energy and tone
+          const ttsInstructions =
+            `You are a male interpreter voicing a live church sermon. ` +
+            `Match the preacher's energy: if the text is exclamatory, emphatic, ` +
+            `or full of praise (exclamation marks, ALL CAPS, "Hallelujah", "Amen", repeated words), ` +
+            `speak with passion, excitement, and lifted volume. ` +
+            `If the text is reflective, prayerful, or scriptural, speak warmly, ` +
+            `slowly, and reverently. Always sound like a confident male preacher — ` +
+            `never flat, never robotic. Preserve natural pauses at punctuation.`;
+
           const ttsRes = await fetch("https://api.openai.com/v1/audio/speech", {
             method: "POST",
             headers: {
@@ -146,6 +155,7 @@ export const processAudioChunk = createServerFn({ method: "POST" })
               model: "gpt-4o-mini-tts",
               input: translation,
               voice: voiceFor(target),
+              instructions: ttsInstructions,
               response_format: "mp3",
             }),
           });
