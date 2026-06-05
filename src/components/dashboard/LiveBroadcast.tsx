@@ -3,6 +3,7 @@ import { Send, StopCircle, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { getLanguage } from "@/lib/languages";
 import { LanguageRoomCard } from "./LanguageRoomCard";
+import { MicCapture } from "./MicCapture";
 import { translateChunk } from "@/lib/translation.functions";
 import { toast } from "sonner";
 
@@ -191,6 +192,13 @@ export function LiveBroadcast({ session, onStop }: Props) {
               {sending ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
             </button>
           </div>
+        </div>
+
+        <div className="mt-6">
+          <label className="text-xs uppercase tracking-wider text-muted-foreground mb-2 block">
+            Microphone capture (queued locally — speech-to-text not yet configured)
+          </label>
+          <MicCapture />
         </div>
 
         <div className="mt-6">
