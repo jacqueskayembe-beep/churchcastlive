@@ -102,7 +102,7 @@ function Dashboard() {
   return (
     <div className="min-h-screen bg-hero">
       <header className="px-6 lg:px-10 py-5 flex items-center justify-between border-b border-border surface/50 backdrop-blur sticky top-0 z-30">
-        <Link to="/" className="flex items-center gap-2">
+        <Link to="/dashboard" className="flex items-center gap-2">
           <div className="size-8 rounded-md bg-amber-gradient grid place-items-center shadow-glow">
             <Radio className="size-4 text-primary-foreground" />
           </div>
