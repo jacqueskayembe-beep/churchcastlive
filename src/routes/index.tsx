@@ -40,7 +40,7 @@ function Landing() {
           </div>
           <h1 className="font-display text-5xl md:text-7xl leading-[1.05] tracking-tight">
             Every word of your service,<br/>
-            <span className="bg-amber-gradient bg-clip-text text-transparent">in every language.</span>
+            <span className="text-primary">in every language.</span>
           </h1>
           <p className="mt-6 text-lg text-muted-foreground max-w-2xl mx-auto">
             ChurchCast translates your sermon in real time and streams it to every listener's phone.
