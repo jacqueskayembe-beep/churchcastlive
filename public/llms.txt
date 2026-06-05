@@ -1,0 +1,10 @@
+# ChurchCast
+
+> Real-time, AI-powered multilingual translation for church services. Broadcasters speak; every listener hears the sermon translated into their language on their phone — no app, no login.
+
+ChurchCast captures live audio from the pulpit, transcribes it, translates it into every language the congregation needs, and streams synthesized speech plus scrolling captions to each listener's phone via a shared QR code or link.
+
+## Pages
+
+- [Home](/): What ChurchCast is, how it works, and who it's for.
+- [Sign in](/auth): Broadcaster sign-in (Google).

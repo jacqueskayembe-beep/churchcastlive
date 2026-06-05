@@ -55,7 +55,7 @@ function AuthPage() {
           </div>
           <span className="font-display text-2xl">ChurchCast</span>
         </Link>
-        <h1 className="font-display text-3xl mb-2">Welcome</h1>
+        <h1 className="font-display text-3xl mb-2">Sign in to ChurchCast</h1>
         <p className="text-sm text-muted-foreground mb-8">
           Sign in to broadcast your service in any language.
         </p>

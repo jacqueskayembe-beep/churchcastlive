@@ -8,12 +8,20 @@ export const Route = createFileRoute("/room/$sessionId/$lang")({
   ssr: false,
   head: ({ params }) => {
     const lang = getLanguage(params.lang);
+    const title = `${lang.flag} ${lang.nativeName} — Live translation on ChurchCast`;
+    const description = `Listen to the live church service translated into ${lang.name} (${lang.nativeName}) on ChurchCast — audio and scrolling captions, no app required.`;
+    const url = `https://dlt-translation-cast.lovable.app/room/${params.sessionId}/${params.lang}`;
     return {
       meta: [
-        { title: `${lang.flag} ${lang.nativeName} — ChurchCast` },
-        { name: "description", content: `Live ${lang.name} translation room.` },
+        { title },
+        { name: "description", content: description },
+        { property: "og:title", content: title },
+        { property: "og:description", content: description },
+        { property: "og:url", content: url },
+        { property: "og:type", content: "website" },
         { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" },
       ],
+      links: [{ rel: "canonical", href: url }],
     };
   },
   component: ListenerRoom,

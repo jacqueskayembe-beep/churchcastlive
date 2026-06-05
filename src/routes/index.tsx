@@ -4,10 +4,37 @@ import { Radio, Globe2, Smartphone, Sparkles } from "lucide-react";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "ChurchCast — Real-Time Multilingual Translation for Churches" },
-      { name: "description", content: "Broadcast your service in any language. AI-powered live translation streamed to every listener's phone — no app, no login." },
-      { property: "og:title", content: "ChurchCast — Real-Time Multilingual Translation" },
-      { property: "og:description", content: "Broadcast your service in any language. AI-powered live translation streamed to every listener's phone." },
+      { title: "ChurchCast — Live Sermon Translation in 20+ Languages" },
+      { name: "description", content: "ChurchCast streams your sermon in real time to every listener's phone — translated into their language, with no app and no login required." },
+      { property: "og:title", content: "ChurchCast — Live Sermon Translation in 20+ Languages" },
+      { property: "og:description", content: "Real-time AI translation for church services. Share a QR code; every listener hears the sermon in their language." },
+      { property: "og:url", content: "https://dlt-translation-cast.lovable.app/" },
+      { property: "og:type", content: "website" },
+    ],
+    links: [
+      { rel: "canonical", href: "https://dlt-translation-cast.lovable.app/" },
+    ],
+    scripts: [
+      {
+        type: "application/ld+json",
+        children: JSON.stringify({
+          "@context": "https://schema.org",
+          "@type": "WebSite",
+          name: "ChurchCast",
+          url: "https://dlt-translation-cast.lovable.app/",
+          description: "Real-time, AI-powered multilingual translation for church services.",
+        }),
+      },
+      {
+        type: "application/ld+json",
+        children: JSON.stringify({
+          "@context": "https://schema.org",
+          "@type": "Organization",
+          name: "ChurchCast",
+          url: "https://dlt-translation-cast.lovable.app/",
+          description: "AI-powered live interpretation service that streams translated sermons to every listener's phone.",
+        }),
+      },
     ],
   }),
   component: Landing,

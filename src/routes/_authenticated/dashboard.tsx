@@ -12,7 +12,8 @@ export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () => ({
     meta: [
       { title: "Dashboard — ChurchCast" },
-      { name: "description", content: "Your ChurchCast broadcast control center." },
+      { name: "description", content: "Manage your ChurchCast live broadcasts, monitor active translation rooms, and review past session transcripts." },
+      { name: "robots", content: "noindex" },
     ],
   }),
   component: Dashboard,
@@ -119,6 +120,7 @@ function Dashboard() {
             onClick={handleSignOut}
             className="p-2 rounded-md hover:bg-secondary transition"
             title="Sign out"
+            aria-label="Sign out"
           >
             <LogOut className="size-4" />
           </button>
