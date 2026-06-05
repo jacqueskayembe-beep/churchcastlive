@@ -46,7 +46,7 @@ export function LanguageRoomCard({ sessionId, lang, listenerCount, recentLines }
         <div>
           <div className="text-2xl">{language.flag}</div>
           <h3 className="font-display text-2xl mt-1">{language.nativeName}</h3>
-          <p className="text-xs text-muted-foreground">{language.name} room</p>
+          <p className="text-xs text-muted-foreground">{language.name} booth</p>
         </div>
         <div className="flex items-center gap-1.5 px-2 py-1 rounded-md surface-elevated border border-border text-xs">
           <Users className="size-3" />

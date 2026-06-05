@@ -111,8 +111,8 @@ export function SessionSetup({ onStart }: Props) {
             </div>
             <h1 className="font-display text-4xl">Share your translation booths</h1>
             <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
-              Each language has its own listening room. Share the QR code or link with your
-              congregation now — they can open the room and wait. When you're ready, go live to
+              Each language has its own listening booth. Share the QR code or link with your
+              congregation now — they can open the booth and wait. When you're ready, go live to
               start streaming.
             </p>
           </div>

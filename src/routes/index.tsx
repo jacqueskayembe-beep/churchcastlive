@@ -103,7 +103,7 @@ function Landing() {
               {
                 icon: Globe2,
                 title: "Translate everywhere",
-                body: "Pick any number of target languages. Each one gets its own room with a unique link and QR code, ready to share.",
+                body: "Pick any number of target languages. Each one gets its own booth with a unique link and QR code, ready to share.",
               },
               {
                 icon: Smartphone,

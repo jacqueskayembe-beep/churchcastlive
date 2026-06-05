@@ -28,8 +28,8 @@ export const Route = createFileRoute("/room/$sessionId/$lang")({
   notFoundComponent: () => (
     <div className="min-h-screen grid place-items-center px-6 text-center">
       <div>
-        <h1 className="font-display text-4xl mb-2">Room not found</h1>
-        <p className="text-muted-foreground">This translation room doesn't exist.</p>
+          <h1 className="font-display text-4xl mb-2">Booth not found</h1>
+          <p className="text-muted-foreground">This translation booth doesn't exist.</p>
       </div>
     </div>
   ),
@@ -170,7 +170,7 @@ function ListenerRoom() {
     return (
       <div className="min-h-screen grid place-items-center px-6 text-center">
         <div>
-          <h1 className="font-display text-4xl mb-2">Room not found</h1>
+          <h1 className="font-display text-4xl mb-2">Booth not found</h1>
           <p className="text-muted-foreground">This broadcast may have ended.</p>
         </div>
       </div>
