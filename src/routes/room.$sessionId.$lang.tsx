@@ -86,7 +86,7 @@ function ListenerRoom() {
     return () => { cancelled = true; };
   }, [sessionId, lang]);
 
-  // Realtime subscriptions
+  // Realtime: transcripts + session status
   useEffect(() => {
     const channel = supabase
       .channel(`room-${sessionId}-${lang}`)
@@ -113,6 +113,20 @@ function ListenerRoom() {
 
     return () => { supabase.removeChannel(channel); };
   }, [sessionId, lang, listening, muted]);
+
+  // Presence: join listener count channel when actively listening
+  useEffect(() => {
+    if (!listening) return;
+    const ch = supabase.channel(`listeners-${sessionId}-${lang}`, {
+      config: { presence: { key: `l-${Math.random().toString(36).slice(2, 10)}` } },
+    });
+    ch.subscribe(async (status) => {
+      if (status === "SUBSCRIBED") {
+        await ch.track({ joined_at: new Date().toISOString() });
+      }
+    });
+    return () => { supabase.removeChannel(ch); };
+  }, [sessionId, lang, listening]);
 
   // Auto-scroll feed
   useEffect(() => {

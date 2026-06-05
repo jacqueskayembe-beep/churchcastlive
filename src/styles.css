@@ -165,6 +165,23 @@
   }
   .animate-fade-up { animation: fadeUp 0.5s ease forwards; }
 
+  .input-base {
+    width: 100%;
+    background-color: var(--color-input);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: 0.625rem 0.875rem;
+    font-size: 0.9rem;
+    color: var(--color-foreground);
+    transition: border-color 150ms, box-shadow 150ms;
+  }
+  .input-base:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px oklch(0.78 0.16 75 / 0.15);
+  }
+  .input-base::placeholder { color: var(--color-muted-foreground); }
+
   @keyframes pulseDot {
     0%, 100% { opacity: 1; transform: scale(1); }
     50%      { opacity: 0.55; transform: scale(1.15); }
