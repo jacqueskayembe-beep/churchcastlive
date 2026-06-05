@@ -71,7 +71,7 @@ export function MicCapture({ sessionId, deviceId }: Props) {
 
   const uploadChunk = useCallback(async (blob: Blob, durationMs: number) => {
     const id = crypto.randomUUID();
-    setStatuses((p) => [...p, { id, state: "uploading", durationMs, recordedAt: Date.now() }].slice(-12));
+    setStatuses((p) => [...p, { id, state: "uploading" as const, durationMs, recordedAt: Date.now() }].slice(-12));
     try {
       const base64 = await blobToBase64(blob);
       const result = await processAudioChunk({
