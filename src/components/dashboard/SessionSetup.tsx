@@ -2,7 +2,8 @@ import { useState, useCallback, useEffect } from "react";
 import { LANGUAGES } from "@/lib/languages";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Mic, Radio, Loader2 } from "lucide-react";
+import { Mic, Radio, Loader2, ArrowLeft, QrCode } from "lucide-react";
+import { LanguageRoomCard } from "./LanguageRoomCard";
 
 interface ActiveSession {
   id: string;
@@ -24,17 +25,18 @@ export function SessionSetup({ onStart }: Props) {
   const [audioSource, setAudioSource] = useState<"mic" | "device">("mic");
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [deviceId, setDeviceId] = useState<string>("");
+  const [creating, setCreating] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [pendingSession, setPendingSession] = useState<ActiveSession | null>(null);
 
   useEffect(() => {
-    // Request mic permission so device labels populate
     navigator.mediaDevices.getUserMedia({ audio: true })
       .then((stream) => {
         stream.getTracks().forEach((t) => t.stop());
         return navigator.mediaDevices.enumerateDevices();
       })
       .then((all) => setDevices(all.filter((d) => d.kind === "audioinput")))
-      .catch(() => { /* mic denied — that's fine for type-mode demo */ });
+      .catch(() => {});
   }, []);
 
   function toggleLang(code: string) {
@@ -43,14 +45,14 @@ export function SessionSetup({ onStart }: Props) {
     );
   }
 
-  const handleStart = useCallback(async () => {
+  const handleCreateBooths = useCallback(async () => {
     if (targetLangs.length === 0) {
       toast.error("Pick at least one target language.");
       return;
     }
-    setStarting(true);
+    setCreating(true);
     const { data: u } = await supabase.auth.getUser();
-    if (!u.user) { toast.error("Please sign in again."); setStarting(false); return; }
+    if (!u.user) { toast.error("Please sign in again."); setCreating(false); return; }
 
     const { data, error } = await supabase
       .from("sessions")
@@ -60,20 +62,95 @@ export function SessionSetup({ onStart }: Props) {
         source_lang: sourceLang,
         target_langs: targetLangs,
         context: context.trim() || null,
-        status: "live",
+        status: "pending",
       })
       .select("id, church_name, source_lang, target_langs, context")
       .single();
 
+    setCreating(false);
     if (error || !data) {
       console.error(error);
+      toast.error("Could not create booths.");
+      return;
+    }
+    toast.success("Booths ready. Share the QR codes with your translators.");
+    setPendingSession(data as ActiveSession);
+  }, [churchName, sourceLang, targetLangs, context]);
+
+  const handleGoLive = useCallback(async () => {
+    if (!pendingSession) return;
+    setStarting(true);
+    const { error } = await supabase
+      .from("sessions")
+      .update({ status: "live", started_at: new Date().toISOString() })
+      .eq("id", pendingSession.id);
+    setStarting(false);
+    if (error) {
+      console.error(error);
       toast.error("Could not start broadcast.");
-      setStarting(false);
       return;
     }
     toast.success("Broadcast started.");
-    onStart(data as ActiveSession);
-  }, [churchName, sourceLang, targetLangs, context, onStart]);
+    onStart(pendingSession);
+  }, [pendingSession, onStart]);
+
+  const handleCancelBooths = useCallback(async () => {
+    if (!pendingSession) return;
+    await supabase.from("sessions").delete().eq("id", pendingSession.id);
+    setPendingSession(null);
+  }, [pendingSession]);
+
+  if (pendingSession) {
+    return (
+      <div className="surface border border-border rounded-3xl p-8 shadow-card mb-8">
+        <div className="flex items-start justify-between mb-6 gap-4 flex-wrap">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <QrCode className="size-4 text-primary" />
+              <span className="text-xs uppercase tracking-widest text-primary font-medium">Booths ready</span>
+            </div>
+            <h1 className="font-display text-4xl">Share your translation booths</h1>
+            <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
+              Each language has its own listening room. Share the QR code or link with your
+              congregation now — they can open the room and wait. When you're ready, go live to
+              start streaming.
+            </p>
+          </div>
+        </div>
+
+        <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4 mb-7">
+          {pendingSession.target_langs.map((lang) => (
+            <LanguageRoomCard
+              key={lang}
+              sessionId={pendingSession.id}
+              lang={lang}
+              listenerCount={0}
+              recentLines={[]}
+            />
+          ))}
+        </div>
+
+        <div className="flex flex-wrap gap-3">
+          <button
+            onClick={handleCancelBooths}
+            disabled={starting}
+            className="px-5 py-3 rounded-lg border border-border hover:bg-secondary transition flex items-center gap-2 disabled:opacity-50"
+          >
+            <ArrowLeft className="size-4" />
+            Back to setup
+          </button>
+          <button
+            onClick={handleGoLive}
+            disabled={starting}
+            className="flex-1 md:flex-none md:px-10 py-3 rounded-lg bg-primary text-primary-foreground font-medium hover:opacity-90 transition shadow-glow disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {starting ? <Loader2 className="size-4 animate-spin" /> : <Radio className="size-4" />}
+            Go live
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="surface border border-border rounded-3xl p-8 shadow-card mb-8">
@@ -81,7 +158,7 @@ export function SessionSetup({ onStart }: Props) {
         <div>
           <h1 className="font-display text-4xl">Start a broadcast</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Set the languages and context, then begin streaming.
+            Set the languages and context, then create your translation booths.
           </p>
         </div>
       </div>
@@ -175,12 +252,12 @@ export function SessionSetup({ onStart }: Props) {
       </div>
 
       <button
-        onClick={handleStart}
-        disabled={starting}
+        onClick={handleCreateBooths}
+        disabled={creating || targetLangs.length === 0}
         className="mt-7 w-full md:w-auto md:px-10 py-3.5 rounded-lg bg-primary text-primary-foreground font-medium hover:opacity-90 transition shadow-glow disabled:opacity-50 flex items-center justify-center gap-2"
       >
-        {starting ? <Loader2 className="size-4 animate-spin" /> : <Radio className="size-4" />}
-        Start broadcast
+        {creating ? <Loader2 className="size-4 animate-spin" /> : <QrCode className="size-4" />}
+        Create translation booths
       </button>
     </div>
   );
