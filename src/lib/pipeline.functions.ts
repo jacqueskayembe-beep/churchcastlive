@@ -148,7 +148,7 @@ export const processAudioChunk = createServerFn({ method: "POST" })
               "Lovable-API-Key": lovableKey,
             },
             body: JSON.stringify({
-              model: "google/gemini-3.1-flash-preview",
+              model: "google/gemini-2.5-pro",
               messages: [
                 { role: "system", content: sysPrompt },
                 { role: "user", content: sourceText },
@@ -165,15 +165,44 @@ export const processAudioChunk = createServerFn({ method: "POST" })
           const translation = (tJson.choices?.[0]?.message?.content ?? "").trim();
           if (!translation) return { lang: target, error: "Empty translation" };
 
-          // Insert transcript row first with a deterministic id, then point
-          // audio_url at our streaming TTS endpoint. The listener's
-          // HTMLAudioElement will progressively download the MP3 as OpenAI
-          // synthesizes it — no wait for full file + storage upload.
-          const transcriptId = crypto.randomUUID();
-          const audioUrl = `/api/public/tts/${transcriptId}`;
+          // TTS via OpenAI → upload MP3 to storage → signed URL
+          const ttsRes = await fetch("https://api.openai.com/v1/audio/speech", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${openaiKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              model: "gpt-4o-mini-tts",
+              input: translation,
+              voice: voiceFor(target),
+              response_format: "mp3",
+            }),
+          });
+          if (!ttsRes.ok) {
+            const txt = await ttsRes.text();
+            console.error(`tts ${target}`, ttsRes.status, txt.slice(0, 200));
+            return { lang: target, error: `TTS ${ttsRes.status}` };
+          }
+          const mp3 = new Uint8Array(await ttsRes.arrayBuffer());
+          const path = `${session.id}/${target}/${crypto.randomUUID()}.mp3`;
+          const { error: upErr } = await supabaseAdmin.storage
+            .from("broadcast-audio")
+            .upload(path, mp3 as unknown as Blob, { contentType: "audio/mpeg", upsert: false });
+          if (upErr) {
+            console.error("upload", upErr);
+            return { lang: target, error: "Upload failed" };
+          }
+          const { data: signed, error: signErr } = await supabaseAdmin.storage
+            .from("broadcast-audio")
+            .createSignedUrl(path, 60 * 60 * 24);
+          if (signErr || !signed?.signedUrl) {
+            console.error("sign", signErr);
+            return { lang: target, error: "Sign failed" };
+          }
+          const audioUrl = signed.signedUrl;
 
           const { error: insErr } = await supabaseAdmin.from("transcripts").insert({
-            id: transcriptId,
             session_id: session.id,
             lang: target,
             text: translation,
