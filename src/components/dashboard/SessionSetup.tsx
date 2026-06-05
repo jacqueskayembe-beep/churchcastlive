@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect } from "react";
 import { LANGUAGES } from "@/lib/languages";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Mic, Radio, Loader2, Info } from "lucide-react";
+import { Mic, Radio, Loader2 } from "lucide-react";
 
 interface ActiveSession {
   id: string;
