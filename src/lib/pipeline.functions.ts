@@ -42,16 +42,31 @@ const BIBLE_VERSION: Record<string, string> = {
 };
 const bibleFor = (c: string) => BIBLE_VERSION[c] ?? "the most widely used local Bible translation";
 
-// Map our language codes → OpenAI TTS voices.
-// MALE voices only: onyx (deep), echo (warm), ash (bright), fable (British).
+// Map our language codes → ElevenLabs voice IDs (male voices, multilingual model handles language).
 function voiceFor(lang: string): string {
   const map: Record<string, string> = {
-    en: "onyx", es: "onyx", fr: "echo", de: "onyx", pt: "echo",
-    it: "echo", nl: "onyx", pl: "onyx", ru: "onyx", uk: "onyx",
-    zh: "echo", ja: "echo", ko: "echo", vi: "echo", hi: "onyx",
-    ar: "onyx", he: "onyx", tr: "echo", sw: "onyx", tl: "echo",
+    en: "JBFqnCBsd6RMkjVDRZzb", // George
+    es: "JBFqnCBsd6RMkjVDRZzb",
+    fr: "JBFqnCBsd6RMkjVDRZzb",
+    de: "JBFqnCBsd6RMkjVDRZzb",
+    pt: "JBFqnCBsd6RMkjVDRZzb",
+    it: "JBFqnCBsd6RMkjVDRZzb",
+    nl: "JBFqnCBsd6RMkjVDRZzb",
+    pl: "JBFqnCBsd6RMkjVDRZzb",
+    ru: "JBFqnCBsd6RMkjVDRZzb",
+    uk: "JBFqnCBsd6RMkjVDRZzb",
+    zh: "JBFqnCBsd6RMkjVDRZzb",
+    ja: "JBFqnCBsd6RMkjVDRZzb",
+    ko: "JBFqnCBsd6RMkjVDRZzb",
+    vi: "JBFqnCBsd6RMkjVDRZzb",
+    hi: "JBFqnCBsd6RMkjVDRZzb",
+    ar: "JBFqnCBsd6RMkjVDRZzb",
+    he: "JBFqnCBsd6RMkjVDRZzb",
+    tr: "JBFqnCBsd6RMkjVDRZzb",
+    sw: "JBFqnCBsd6RMkjVDRZzb",
+    tl: "JBFqnCBsd6RMkjVDRZzb",
   };
-  return map[lang] ?? "onyx";
+  return map[lang] ?? "JBFqnCBsd6RMkjVDRZzb";
 }
 
 function base64ToBytes(b64: string): Uint8Array {
