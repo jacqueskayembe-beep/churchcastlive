@@ -182,52 +182,13 @@ export const processAudioChunk = createServerFn({ method: "POST" })
           const translation = (tJson.choices?.[0]?.message?.content ?? "").trim();
           if (!translation) return { lang: target, error: "Empty translation" };
 
-          // TTS via ElevenLabs → upload MP3 to storage → signed URL
-          const voiceId = voiceFor(target);
-          const ttsRes = await fetch(
-            `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_128`,
-            {
-              method: "POST",
-              headers: {
-                "xi-api-key": elevenKey,
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                text: translation,
-                model_id: "eleven_turbo_v2_5",
-                voice_settings: {
-                  stability: 0.5,
-                  similarity_boost: 0.75,
-                  style: 0.3,
-                  use_speaker_boost: true,
-                },
-              }),
-            },
-          );
-          if (!ttsRes.ok) {
-            const txt = await ttsRes.text();
-            console.error(`tts ${target}`, ttsRes.status, txt.slice(0, 200));
-            return { lang: target, error: `TTS ${ttsRes.status}` };
-          }
-          const mp3 = new Uint8Array(await ttsRes.arrayBuffer());
-          const path = `${session.id}/${target}/${crypto.randomUUID()}.mp3`;
-          const { error: upErr } = await supabaseAdmin.storage
-            .from("broadcast-audio")
-            .upload(path, mp3 as unknown as Blob, { contentType: "audio/mpeg", upsert: false });
-          if (upErr) {
-            console.error("upload", upErr);
-            return { lang: target, error: "Upload failed" };
-          }
-          const { data: signed, error: signErr } = await supabaseAdmin.storage
-            .from("broadcast-audio")
-            .createSignedUrl(path, 60 * 60 * 24);
-          if (signErr || !signed?.signedUrl) {
-            console.error("sign", signErr);
-            return { lang: target, error: "Sign failed" };
-          }
-          const audioUrl = signed.signedUrl;
+          // Streaming TTS: insert row immediately with a URL that the listener's
+          // <audio> element will progressively stream from ElevenLabs via our route.
+          const transcriptId = crypto.randomUUID();
+          const audioUrl = `/api/public/tts/${transcriptId}.mp3`;
 
           const { error: insErr } = await supabaseAdmin.from("transcripts").insert({
+            id: transcriptId,
             session_id: session.id,
             lang: target,
             text: translation,
@@ -238,6 +199,8 @@ export const processAudioChunk = createServerFn({ method: "POST" })
             console.error("insert transcript", insErr);
             return { lang: target, error: "Insert failed" };
           }
+
+
 
           return { lang: target, translation, audioUrl };
         } catch (e) {

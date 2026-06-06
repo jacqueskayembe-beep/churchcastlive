@@ -105,7 +105,14 @@ export function LiveBroadcast({ session, onStop }: Props) {
 
         <div className="mt-6">
           <MicCapture sessionId={session.id} />
+          <p className="mt-3 text-xs text-muted-foreground leading-relaxed">
+            <span className="font-medium text-foreground">Using NDI?</span>{" "}
+            Install <a href="https://ndi.video/tools/" target="_blank" rel="noreferrer" className="underline">NDI Tools</a>{" "}
+            and run <span className="font-mono">NDI Virtual Input</span> (or <span className="font-mono">NDI Audio Direct</span>) —
+            it exposes your NDI audio source as a system microphone that your browser will pick up automatically.
+          </p>
         </div>
+
 
         <div className="mt-6">
           <h2 className="text-xs uppercase tracking-wider text-muted-foreground mb-3">
