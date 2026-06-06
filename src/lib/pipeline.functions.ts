@@ -182,20 +182,28 @@ export const processAudioChunk = createServerFn({ method: "POST" })
           const translation = (tJson.choices?.[0]?.message?.content ?? "").trim();
           if (!translation) return { lang: target, error: "Empty translation" };
 
-          // TTS via OpenAI → upload MP3 to storage → signed URL
-          const ttsRes = await fetch("https://api.openai.com/v1/audio/speech", {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${openaiKey}`,
-              "Content-Type": "application/json",
+          // TTS via ElevenLabs → upload MP3 to storage → signed URL
+          const voiceId = voiceFor(target);
+          const ttsRes = await fetch(
+            `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_128`,
+            {
+              method: "POST",
+              headers: {
+                "xi-api-key": elevenKey,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                text: translation,
+                model_id: "eleven_turbo_v2_5",
+                voice_settings: {
+                  stability: 0.5,
+                  similarity_boost: 0.75,
+                  style: 0.3,
+                  use_speaker_boost: true,
+                },
+              }),
             },
-            body: JSON.stringify({
-              model: "gpt-4o-mini-tts",
-              input: translation,
-              voice: voiceFor(target),
-              response_format: "mp3",
-            }),
-          });
+          );
           if (!ttsRes.ok) {
             const txt = await ttsRes.text();
             console.error(`tts ${target}`, ttsRes.status, txt.slice(0, 200));
