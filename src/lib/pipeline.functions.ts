@@ -92,8 +92,10 @@ export const processAudioChunk = createServerFn({ method: "POST" })
     const { supabase, userId } = context;
     const openaiKey = process.env.OPENAI_API_KEY;
     const lovableKey = process.env.LOVABLE_API_KEY;
+    const elevenKey = process.env.ELEVENLABS_API_KEY;
     if (!openaiKey) return { ok: false as const, error: "OPENAI_API_KEY not configured." };
     if (!lovableKey) return { ok: false as const, error: "LOVABLE_API_KEY not configured." };
+    if (!elevenKey) return { ok: false as const, error: "ELEVENLABS_API_KEY not configured." };
 
     // Verify the user owns this session and fetch lang config
     const { data: session, error: sErr } = await supabase
