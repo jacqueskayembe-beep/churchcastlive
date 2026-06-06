@@ -42,16 +42,31 @@ const BIBLE_VERSION: Record<string, string> = {
 };
 const bibleFor = (c: string) => BIBLE_VERSION[c] ?? "the most widely used local Bible translation";
 
-// Map our language codes → OpenAI TTS voices.
-// MALE voices only: onyx (deep), echo (warm), ash (bright), fable (British).
+// Map our language codes → ElevenLabs voice IDs (male voices, multilingual model handles language).
 function voiceFor(lang: string): string {
   const map: Record<string, string> = {
-    en: "onyx", es: "onyx", fr: "echo", de: "onyx", pt: "echo",
-    it: "echo", nl: "onyx", pl: "onyx", ru: "onyx", uk: "onyx",
-    zh: "echo", ja: "echo", ko: "echo", vi: "echo", hi: "onyx",
-    ar: "onyx", he: "onyx", tr: "echo", sw: "onyx", tl: "echo",
+    en: "JBFqnCBsd6RMkjVDRZzb", // George
+    es: "JBFqnCBsd6RMkjVDRZzb",
+    fr: "JBFqnCBsd6RMkjVDRZzb",
+    de: "JBFqnCBsd6RMkjVDRZzb",
+    pt: "JBFqnCBsd6RMkjVDRZzb",
+    it: "JBFqnCBsd6RMkjVDRZzb",
+    nl: "JBFqnCBsd6RMkjVDRZzb",
+    pl: "JBFqnCBsd6RMkjVDRZzb",
+    ru: "JBFqnCBsd6RMkjVDRZzb",
+    uk: "JBFqnCBsd6RMkjVDRZzb",
+    zh: "JBFqnCBsd6RMkjVDRZzb",
+    ja: "JBFqnCBsd6RMkjVDRZzb",
+    ko: "JBFqnCBsd6RMkjVDRZzb",
+    vi: "JBFqnCBsd6RMkjVDRZzb",
+    hi: "JBFqnCBsd6RMkjVDRZzb",
+    ar: "JBFqnCBsd6RMkjVDRZzb",
+    he: "JBFqnCBsd6RMkjVDRZzb",
+    tr: "JBFqnCBsd6RMkjVDRZzb",
+    sw: "JBFqnCBsd6RMkjVDRZzb",
+    tl: "JBFqnCBsd6RMkjVDRZzb",
   };
-  return map[lang] ?? "onyx";
+  return map[lang] ?? "JBFqnCBsd6RMkjVDRZzb";
 }
 
 function base64ToBytes(b64: string): Uint8Array {
@@ -77,8 +92,10 @@ export const processAudioChunk = createServerFn({ method: "POST" })
     const { supabase, userId } = context;
     const openaiKey = process.env.OPENAI_API_KEY;
     const lovableKey = process.env.LOVABLE_API_KEY;
+    const elevenKey = process.env.ELEVENLABS_API_KEY;
     if (!openaiKey) return { ok: false as const, error: "OPENAI_API_KEY not configured." };
     if (!lovableKey) return { ok: false as const, error: "LOVABLE_API_KEY not configured." };
+    if (!elevenKey) return { ok: false as const, error: "ELEVENLABS_API_KEY not configured." };
 
     // Verify the user owns this session and fetch lang config
     const { data: session, error: sErr } = await supabase
@@ -165,20 +182,28 @@ export const processAudioChunk = createServerFn({ method: "POST" })
           const translation = (tJson.choices?.[0]?.message?.content ?? "").trim();
           if (!translation) return { lang: target, error: "Empty translation" };
 
-          // TTS via OpenAI → upload MP3 to storage → signed URL
-          const ttsRes = await fetch("https://api.openai.com/v1/audio/speech", {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${openaiKey}`,
-              "Content-Type": "application/json",
+          // TTS via ElevenLabs → upload MP3 to storage → signed URL
+          const voiceId = voiceFor(target);
+          const ttsRes = await fetch(
+            `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_128`,
+            {
+              method: "POST",
+              headers: {
+                "xi-api-key": elevenKey,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                text: translation,
+                model_id: "eleven_turbo_v2_5",
+                voice_settings: {
+                  stability: 0.5,
+                  similarity_boost: 0.75,
+                  style: 0.3,
+                  use_speaker_boost: true,
+                },
+              }),
             },
-            body: JSON.stringify({
-              model: "gpt-4o-mini-tts",
-              input: translation,
-              voice: voiceFor(target),
-              response_format: "mp3",
-            }),
-          });
+          );
           if (!ttsRes.ok) {
             const txt = await ttsRes.text();
             console.error(`tts ${target}`, ttsRes.status, txt.slice(0, 200));
