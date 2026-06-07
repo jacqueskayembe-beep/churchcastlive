@@ -12,6 +12,7 @@ interface Props {
     source_lang: string;
     target_langs: string[];
     context: string | null;
+    audio_device_id?: string | null;
   };
   onStop: () => void;
 }
@@ -104,7 +105,7 @@ export function LiveBroadcast({ session, onStop }: Props) {
         </div>
 
         <div className="mt-6">
-          <MicCaptureClient sessionId={session.id} />
+          <MicCaptureClient sessionId={session.id} deviceId={session.audio_device_id ?? undefined} />
           <p className="mt-3 text-xs text-muted-foreground leading-relaxed">
             <span className="font-medium text-foreground">Using NDI?</span>{" "}
             Install <a href="https://ndi.video/tools/" target="_blank" rel="noreferrer" className="underline">NDI Tools</a>{" "}
