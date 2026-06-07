@@ -5,7 +5,7 @@ const MicCapture = lazy(() =>
   import("./MicCapture").then((m) => ({ default: m.MicCapture })),
 );
 
-export function MicCaptureClient({ sessionId }: { sessionId: string }) {
+export function MicCaptureClient({ sessionId, deviceId }: { sessionId: string; deviceId?: string }) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
 
@@ -27,7 +27,7 @@ export function MicCaptureClient({ sessionId }: { sessionId: string }) {
         </div>
       }
     >
-      <MicCapture sessionId={sessionId} />
+      <MicCapture sessionId={sessionId} deviceId={deviceId} />
     </Suspense>
   );
 }
