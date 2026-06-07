@@ -3,7 +3,7 @@ import { StopCircle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { getLanguage } from "@/lib/languages";
 import { LanguageRoomCard } from "./LanguageRoomCard";
-import { MicCapture } from "./MicCapture";
+import { MicCaptureClient } from "./MicCaptureClient";
 
 interface Props {
   session: {
@@ -104,7 +104,7 @@ export function LiveBroadcast({ session, onStop }: Props) {
         </div>
 
         <div className="mt-6">
-          <MicCapture sessionId={session.id} />
+          <MicCaptureClient sessionId={session.id} />
           <p className="mt-3 text-xs text-muted-foreground leading-relaxed">
             <span className="font-medium text-foreground">Using NDI?</span>{" "}
             Install <a href="https://ndi.video/tools/" target="_blank" rel="noreferrer" className="underline">NDI Tools</a>{" "}
