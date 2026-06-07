@@ -25,6 +25,7 @@ interface ActiveSession {
   source_lang: string;
   target_langs: string[];
   context: string | null;
+  audio_device_id?: string | null;
 }
 
 function Dashboard() {
