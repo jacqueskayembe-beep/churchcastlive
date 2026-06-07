@@ -11,6 +11,7 @@ interface ActiveSession {
   source_lang: string;
   target_langs: string[];
   context: string | null;
+  audio_device_id?: string | null;
 }
 
 interface Props {
@@ -74,8 +75,8 @@ export function SessionSetup({ onStart }: Props) {
       return;
     }
     toast.success("Booths ready. Share the QR codes with your translators.");
-    setPendingSession(data as ActiveSession);
-  }, [churchName, sourceLang, targetLangs, context]);
+    setPendingSession({ ...(data as ActiveSession), audio_device_id: audioSource === "device" ? deviceId || null : null });
+  }, [audioSource, churchName, context, deviceId, sourceLang, targetLangs]);
 
   const handleGoLive = useCallback(async () => {
     if (!pendingSession) return;
