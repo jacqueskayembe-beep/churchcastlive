@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Mic, MicOff, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { useScribe, CommitStrategy } from "@elevenlabs/react";
+import { CommitStrategy, RealtimeEvents, Scribe, type RealtimeConnection } from "@elevenlabs/client";
 import { getScribeToken, translateCommitted } from "@/lib/realtime-pipeline.functions";
 
 interface Props {
@@ -11,9 +11,12 @@ interface Props {
 
 export function MicCapture({ sessionId, deviceId }: Props) {
   const [connecting, setConnecting] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [streamError, setStreamError] = useState<string | null>(null);
   const [partial, setPartial] = useState("");
   const [recent, setRecent] = useState<string[]>([]);
   const inFlightRef = useRef(0);
+  const connectionRef = useRef<RealtimeConnection | null>(null);
 
   const handleCommitted = useCallback(
     async (text: string) => {
@@ -33,52 +36,56 @@ export function MicCapture({ sessionId, deviceId }: Props) {
     [sessionId],
   );
 
-  const scribe = useScribe({
-    modelId: "scribe_v2_realtime",
-    commitStrategy: CommitStrategy.VAD,
-    onPartialTranscript: (d: { text: string }) => setPartial(d.text || ""),
-    onCommittedTranscript: (d: { text: string }) => {
-      setPartial("");
-      handleCommitted(d.text);
-    },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Streaming error"),
-    onAuthError: (data) => toast.error(data.error),
-    onInputError: (data) => toast.error(data.error),
-    onTranscriberError: (data) => toast.error(data.error),
-  });
-  const scribeRef = useRef(scribe);
-
-  useEffect(() => {
-    scribeRef.current = scribe;
-  }, [scribe]);
-
   const start = useCallback(async () => {
+    if (connectionRef.current) return;
     setConnecting(true);
+    setStreamError(null);
     try {
       const tok = await getScribeToken({ data: undefined });
       if (!tok.ok) throw new Error(tok.error);
-      await navigator.mediaDevices.getUserMedia({
-        audio: deviceId ? { deviceId } : true,
-      }).then((stream) => stream.getTracks().forEach((track) => track.stop()));
-      await scribe.connect({
+      const connection = Scribe.connect({
         token: tok.token,
+        modelId: "scribe_v2_realtime",
+        commitStrategy: CommitStrategy.VAD,
         microphone: { deviceId, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       });
+      connectionRef.current = connection;
+      connection.on(RealtimeEvents.OPEN, () => setConnecting(false));
+      connection.on(RealtimeEvents.SESSION_STARTED, () => setRecording(true));
+      connection.on(RealtimeEvents.PARTIAL_TRANSCRIPT, (data) => setPartial(data.text || ""));
+      connection.on(RealtimeEvents.COMMITTED_TRANSCRIPT, (data) => {
+        setPartial("");
+        handleCommitted(data.text || "");
+      });
+      connection.on(RealtimeEvents.ERROR, (error) => {
+        const message = error instanceof Error ? error.message : "error" in error ? error.error : "Streaming error";
+        setStreamError(message);
+        toast.error(message);
+      });
+      connection.on(RealtimeEvents.CLOSE, () => {
+        connectionRef.current = null;
+        setConnecting(false);
+        setRecording(false);
+      });
     } catch (e) {
+      connectionRef.current = null;
+      setRecording(false);
+      setStreamError((e as Error).message || "Could not start streaming");
       toast.error((e as Error).message || "Could not start streaming");
-    } finally {
       setConnecting(false);
     }
-  }, [deviceId, scribe]);
+  }, [deviceId, handleCommitted]);
 
   const stop = useCallback(() => {
-    try { scribe.disconnect(); } catch { /* noop */ }
-  }, [scribe]);
+    try { connectionRef.current?.close(); } catch { /* noop */ }
+    connectionRef.current = null;
+    setConnecting(false);
+    setRecording(false);
+  }, []);
 
-  useEffect(() => () => { try { scribeRef.current.disconnect(); } catch { /* noop */ } }, []);
+  useEffect(() => () => { try { connectionRef.current?.close(); } catch { /* noop */ } }, []);
 
-  const recording = scribe.isConnected;
-  const busy = connecting || scribe.status === "connecting";
+  const busy = connecting;
 
   return (
     <div className="surface-elevated border border-border rounded-2xl p-6 space-y-5">
@@ -103,7 +110,7 @@ export function MicCapture({ sessionId, deviceId }: Props) {
           <p className="text-xs text-muted-foreground mt-1">
             Real-time streaming transcription. Each phrase is translated and spoken aloud the moment you pause.
           </p>
-          {scribe.error && <p className="text-xs text-destructive mt-2">{scribe.error}</p>}
+          {streamError && <p className="text-xs text-destructive mt-2">{streamError}</p>}
         </div>
       </div>
 
