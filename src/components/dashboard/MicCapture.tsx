@@ -1,272 +1,110 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Mic, MicOff, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
+import { Mic, MicOff, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { processAudioChunk } from "@/lib/pipeline.functions";
-
-interface ChunkStatus {
-  id: string;
-  state: "uploading" | "done" | "error";
-  durationMs: number;
-  recordedAt: number;
-  error?: string;
-  text?: string;
-}
+import { useScribe } from "@elevenlabs/react";
+import { getScribeToken, translateCommitted } from "@/lib/realtime-pipeline.functions";
 
 interface Props {
   sessionId: string;
-  deviceId?: string;
 }
 
-// Silence detection thresholds — aim for full sentences/paragraphs (~60s),
-// finalize on a natural pause rather than slicing speech into fragments.
-const SILENCE_RMS = 0.012;
-const SILENCE_MS = 500;        // finalize on a brief natural pause (~0.5s)
-const MIN_CHUNK_MS = 15000;    // build at least ~15s of audio before looking for a pause
-const MAX_CHUNK_MS = 20000;    // hard cap shortly after 15s so listeners aren't waiting
-const TIMESLICE_MS = 500;
+export function MicCapture({ sessionId }: Props) {
+  const [connecting, setConnecting] = useState(false);
+  const [partial, setPartial] = useState("");
+  const [recent, setRecent] = useState<string[]>([]);
+  const inFlightRef = useRef(0);
 
-function blobToBase64(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onloadend = () => {
-      const result = r.result as string;
-      // strip "data:...;base64,"
-      const comma = result.indexOf(",");
-      resolve(comma >= 0 ? result.slice(comma + 1) : result);
-    };
-    r.onerror = reject;
-    r.readAsDataURL(blob);
+  const handleCommitted = useCallback(
+    async (text: string) => {
+      const clean = text.trim();
+      if (!clean) return;
+      setRecent((p) => [...p, clean].slice(-6));
+      inFlightRef.current += 1;
+      try {
+        const res = await translateCommitted({ data: { sessionId, text: clean } });
+        if (!res.ok) toast.error(res.error);
+      } catch (e) {
+        toast.error((e as Error).message || "Translate failed");
+      } finally {
+        inFlightRef.current -= 1;
+      }
+    },
+    [sessionId],
+  );
+
+  const scribe = useScribe({
+    modelId: "scribe_v2_realtime",
+    commitStrategy: "vad",
+    onPartialTranscript: (d: { text: string }) => setPartial(d.text || ""),
+    onCommittedTranscript: (d: { text: string }) => {
+      setPartial("");
+      handleCommitted(d.text);
+    },
   });
-}
-
-export function MicCapture({ sessionId, deviceId }: Props) {
-  const [recording, setRecording] = useState(false);
-  const [level, setLevel] = useState(0);
-  const [statuses, setStatuses] = useState<ChunkStatus[]>([]);
-
-  const streamRef = useRef<MediaStream | null>(null);
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const rafRef = useRef<number | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-  const chunkStartRef = useRef<number>(0);
-  const lastVoiceRef = useRef<number>(0);
-  const hasVoiceRef = useRef<boolean>(false);
-  const cycleResolverRef = useRef<(() => void) | null>(null);
-
-  const teardown = useCallback(() => {
-    if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    rafRef.current = null;
-    try { recorderRef.current?.state !== "inactive" && recorderRef.current?.stop(); } catch { /* noop */ }
-    recorderRef.current = null;
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-    streamRef.current = null;
-    analyserRef.current = null;
-    audioCtxRef.current?.close().catch(() => {});
-    audioCtxRef.current = null;
-    setLevel(0);
-  }, []);
-
-  useEffect(() => () => { teardown(); }, [teardown]);
-
-  const uploadChunk = useCallback(async (blob: Blob, durationMs: number) => {
-    const id = crypto.randomUUID();
-    setStatuses((p) => [...p, { id, state: "uploading" as const, durationMs, recordedAt: Date.now() }].slice(-12));
-    try {
-      const base64 = await blobToBase64(blob);
-      const result = await processAudioChunk({
-        data: { sessionId, audioBase64: base64, mimeType: blob.type || "audio/webm" },
-      });
-      if (!result.ok) {
-        setStatuses((p) => p.map((s) => s.id === id ? { ...s, state: "error", error: result.error } : s));
-        toast.error(result.error);
-      } else {
-        setStatuses((p) => p.map((s) => s.id === id ? { ...s, state: "done", text: result.sourceText } : s));
-      }
-    } catch (e) {
-      const msg = (e as Error).message;
-      setStatuses((p) => p.map((s) => s.id === id ? { ...s, state: "error", error: msg } : s));
-      toast.error("Failed to process audio chunk.");
-    }
-  }, [sessionId]);
-
-  const finalizeCurrent = useCallback(() => {
-    const rec = recorderRef.current;
-    if (!rec || rec.state === "inactive") return;
-    return new Promise<void>((resolve) => {
-      cycleResolverRef.current = resolve;
-      try { rec.stop(); } catch { resolve(); }
-    });
-  }, []);
-
-  const startRecorderCycle = useCallback((stream: MediaStream) => {
-    const mime =
-      MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" :
-      MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" :
-      MediaRecorder.isTypeSupported("audio/mp4") ? "audio/mp4" : "";
-    const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
-    chunksRef.current = [];
-    chunkStartRef.current = performance.now();
-    hasVoiceRef.current = false;
-
-    rec.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunksRef.current.push(e.data); };
-    rec.onstop = () => {
-      const blobs = chunksRef.current;
-      chunksRef.current = [];
-      const durationMs = Math.round(performance.now() - chunkStartRef.current);
-      const resolver = cycleResolverRef.current;
-      cycleResolverRef.current = null;
-
-      if (hasVoiceRef.current && durationMs >= MIN_CHUNK_MS && blobs.length > 0) {
-        const blob = new Blob(blobs, { type: rec.mimeType || "audio/webm" });
-        uploadChunk(blob, durationMs);
-      }
-      resolver?.();
-    };
-
-    rec.start(TIMESLICE_MS);
-    recorderRef.current = rec;
-  }, [uploadChunk]);
 
   const start = useCallback(async () => {
+    setConnecting(true);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: deviceId
-          ? { deviceId: { exact: deviceId }, echoCancellation: true, noiseSuppression: true, autoGainControl: true }
-          : { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      const tok = await getScribeToken({ data: undefined });
+      if (!tok.ok) throw new Error(tok.error);
+      await scribe.connect({
+        token: tok.token,
+        microphone: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       });
-      streamRef.current = stream;
-
-      const ctx = new AudioContext();
-      audioCtxRef.current = ctx;
-      const src = ctx.createMediaStreamSource(stream);
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 1024;
-      src.connect(analyser);
-      analyserRef.current = analyser;
-
-      setRecording(true);
-      startRecorderCycle(stream);
-
-      const buf = new Float32Array(analyser.fftSize);
-      lastVoiceRef.current = performance.now();
-
-      const tick = () => {
-        if (!analyserRef.current) return;
-        analyserRef.current.getFloatTimeDomainData(buf);
-        let sum = 0;
-        for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
-        const rms = Math.sqrt(sum / buf.length);
-        setLevel(Math.min(1, rms * 8));
-
-        const now = performance.now();
-        const elapsed = now - chunkStartRef.current;
-
-        if (rms > SILENCE_RMS) {
-          lastVoiceRef.current = now;
-          hasVoiceRef.current = true;
-        }
-
-        const silenceGap = now - lastVoiceRef.current;
-        const shouldFinalize =
-          (hasVoiceRef.current && silenceGap > SILENCE_MS && elapsed > MIN_CHUNK_MS) ||
-          elapsed > MAX_CHUNK_MS;
-
-        if (shouldFinalize && recorderRef.current?.state === "recording") {
-          const s = streamRef.current;
-          if (s) {
-            (async () => {
-              await finalizeCurrent();
-              if (streamRef.current) startRecorderCycle(streamRef.current);
-              lastVoiceRef.current = performance.now();
-            })();
-          }
-        }
-
-        rafRef.current = requestAnimationFrame(tick);
-      };
-      rafRef.current = requestAnimationFrame(tick);
-    } catch (err) {
-      console.error(err);
-      toast.error("Microphone access denied or unavailable.");
-      teardown();
-      setRecording(false);
+    } catch (e) {
+      toast.error((e as Error).message || "Could not start streaming");
+    } finally {
+      setConnecting(false);
     }
-  }, [deviceId, startRecorderCycle, finalizeCurrent, teardown]);
+  }, [scribe]);
 
   const stop = useCallback(async () => {
-    if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    rafRef.current = null;
-    await finalizeCurrent();
-    teardown();
-    setRecording(false);
-  }, [finalizeCurrent, teardown]);
+    try { await scribe.disconnect(); } catch { /* noop */ }
+  }, [scribe]);
+
+  useEffect(() => () => { scribe.disconnect?.().catch(() => {}); }, [scribe]);
+
+  const recording = scribe.isConnected;
 
   return (
     <div className="surface-elevated border border-border rounded-2xl p-6 space-y-5">
       <div className="flex items-center gap-5">
         <button
           onClick={recording ? stop : start}
+          disabled={connecting}
           className={`size-20 rounded-full grid place-items-center transition shadow-glow ${
             recording
               ? "bg-rose-glow text-white animate-pulse-dot"
               : "bg-amber-gradient text-primary-foreground hover:opacity-90"
-          }`}
+          } disabled:opacity-60`}
           aria-label={recording ? "Stop broadcasting" : "Start broadcasting"}
         >
-          {recording ? <MicOff className="size-8" /> : <Mic className="size-8" />}
+          {connecting ? <Loader2 className="size-8 animate-spin" /> :
+           recording ? <MicOff className="size-8" /> : <Mic className="size-8" />}
         </button>
         <div className="flex-1">
           <p className="font-display text-2xl">
-            {recording ? "Broadcasting…" : "Tap to start broadcasting"}
+            {recording ? "Streaming live…" : connecting ? "Connecting…" : "Tap to start broadcasting"}
           </p>
           <p className="text-xs text-muted-foreground mt-1">
-            Speech is transcribed, translated, and spoken aloud automatically for every listener.
+            Real-time streaming transcription. Each phrase is translated and spoken aloud the moment you pause.
           </p>
-          {/* Level meter */}
-          <div className="flex items-center gap-1.5 h-6 mt-3" aria-hidden>
-            {Array.from({ length: 20 }).map((_, i) => {
-              const active = level * 20 > i;
-              return (
-                <span
-                  key={i}
-                  className={`w-1 rounded-full transition-all ${active ? "bg-primary" : "bg-border"}`}
-                  style={{ height: `${6 + i * 0.8}px`, opacity: active ? 1 : 0.4 }}
-                />
-              );
-            })}
-          </div>
         </div>
       </div>
 
-      {statuses.length > 0 && (
+      {(partial || recent.length > 0) && (
         <div>
           <h3 className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
-            Recent chunks
+            Live capture
           </h3>
-          <ul className="space-y-1.5 max-h-48 overflow-y-auto">
-            {statuses.slice().reverse().map((s) => (
-              <li
-                key={s.id}
-                className="flex items-center gap-3 bg-background/40 border border-border rounded-lg px-3 py-2 text-sm animate-fade-up"
-              >
-                <span className="shrink-0">
-                  {s.state === "uploading" && <Loader2 className="size-4 animate-spin text-primary" />}
-                  {s.state === "done" && <CheckCircle2 className="size-4 text-emerald-400" />}
-                  {s.state === "error" && <AlertCircle className="size-4 text-destructive" />}
-                </span>
-                <span className="flex-1 min-w-0 truncate text-muted-foreground">
-                  {s.state === "done" ? (s.text || "(no speech detected)") :
-                   s.state === "error" ? s.error :
-                   "Transcribing & translating…"}
-                </span>
-                <span className="text-xs text-muted-foreground tabular-nums shrink-0">
-                  {(s.durationMs / 1000).toFixed(1)}s
-                </span>
-              </li>
+          <div className="bg-background/40 border border-border rounded-lg p-3 text-sm space-y-1 max-h-44 overflow-y-auto">
+            {recent.map((t, i) => (
+              <p key={i} className="text-foreground/80 animate-fade-up">{t}</p>
             ))}
-          </ul>
+            {partial && (
+              <p className="text-muted-foreground italic">{partial}…</p>
+            )}
+          </div>
         </div>
       )}
     </div>
