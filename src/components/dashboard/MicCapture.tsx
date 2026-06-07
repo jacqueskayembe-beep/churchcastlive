@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Mic, MicOff, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { useScribe } from "@elevenlabs/react";
+import { useScribe, CommitStrategy } from "@elevenlabs/react";
 import { getScribeToken, translateCommitted } from "@/lib/realtime-pipeline.functions";
 
 interface Props {
@@ -34,7 +34,7 @@ export function MicCapture({ sessionId }: Props) {
 
   const scribe = useScribe({
     modelId: "scribe_v2_realtime",
-    commitStrategy: "vad",
+    commitStrategy: CommitStrategy.VAD,
     onPartialTranscript: (d: { text: string }) => setPartial(d.text || ""),
     onCommittedTranscript: (d: { text: string }) => {
       setPartial("");
@@ -58,11 +58,11 @@ export function MicCapture({ sessionId }: Props) {
     }
   }, [scribe]);
 
-  const stop = useCallback(async () => {
-    try { await scribe.disconnect(); } catch { /* noop */ }
+  const stop = useCallback(() => {
+    try { scribe.disconnect(); } catch { /* noop */ }
   }, [scribe]);
 
-  useEffect(() => () => { scribe.disconnect?.().catch(() => {}); }, [scribe]);
+  useEffect(() => () => { try { scribe.disconnect?.(); } catch { /* noop */ } }, [scribe]);
 
   const recording = scribe.isConnected;
 
