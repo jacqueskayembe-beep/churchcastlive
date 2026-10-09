@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { Radio, Volume2, VolumeX } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { getLanguage } from "@/lib/languages";
+import { LiveListener, type ListenerStats } from "@/lib/live-audio";
 
 export const Route = createFileRoute("/room/$sessionId/$lang")({
   ssr: false,
@@ -204,6 +205,9 @@ function ListenerRoom() {
             </p>
           ))
         )}
+        {liveCaption && (
+          <p className="text-xl md:text-2xl leading-relaxed text-foreground/70 font-display">{liveCaption}</p>
+        )}
       </div>
 
       <footer className="px-5 pb-8 pt-4 sticky bottom-0 surface/80 backdrop-blur border-t border-border">
@@ -220,7 +224,9 @@ function ListenerRoom() {
             <div className="flex items-center justify-between px-4 py-3 rounded-2xl surface-elevated border border-border">
               <div className="flex items-center gap-2">
                 <span className="size-2 rounded-full bg-rose-glow animate-pulse-dot" />
-                <span className="text-sm font-medium">Listening</span>
+                <span className="text-sm font-medium">
+                  {audioState === "live" ? "Listening" : audioState === "reconnecting" ? "Reconnecting…" : audioState === "connecting" ? "Connecting…" : audioState === "unavailable" ? "Audio unavailable" : audioState === "ended" ? "Broadcast ended" : "Listening"}
+                </span>
               </div>
               <button
                 onClick={() => setMuted((m) => !m)}
