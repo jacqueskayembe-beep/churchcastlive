@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { Radio, Volume2, VolumeX } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { getLanguage } from "@/lib/languages";
+import { LiveListener, type ListenerStats } from "@/lib/live-audio";
 
 export const Route = createFileRoute("/room/$sessionId/$lang")({
   ssr: false,
@@ -64,10 +65,10 @@ function ListenerRoom() {
   const [lines, setLines] = useState<TranscriptLine[]>([]);
   const [listening, setListening] = useState(false);
   const [muted, setMuted] = useState(false);
+  const [liveCaption, setLiveCaption] = useState("");
+  const [audioState, setAudioState] = useState<ListenerStats["state"]>("idle");
   const feedRef = useRef<HTMLDivElement>(null);
-  const audioQueueRef = useRef<string[]>([]);
-  const audioElRef = useRef<HTMLAudioElement | null>(null);
-  const playingRef = useRef(false);
+  const listenerRef = useRef<LiveListener | null>(null);
 
   // Fetch session + initial transcripts
   useEffect(() => {
@@ -94,7 +95,7 @@ function ListenerRoom() {
     return () => { cancelled = true; };
   }, [sessionId, lang]);
 
-  // Realtime: transcripts + session status
+  // Realtime: saved caption lines + session status
   useEffect(() => {
     const channel = supabase
       .channel(`room-${sessionId}-${lang}`)
@@ -105,10 +106,7 @@ function ListenerRoom() {
         const row = payload.new as TranscriptLine & { lang: string };
         if (row.lang !== lang) return;
         setLines((prev) => [...prev, row].slice(-50));
-        if (row.audio_url && listening && !muted) {
-          audioQueueRef.current.push(row.audio_url);
-          playNext();
-        }
+        setLiveCaption("");
       })
       .on("postgres_changes", {
         event: "UPDATE", schema: "public", table: "sessions",
@@ -120,7 +118,7 @@ function ListenerRoom() {
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [sessionId, lang, listening, muted]);
+  }, [sessionId, lang]);
 
   // Presence: join listener count channel when actively listening
   useEffect(() => {
@@ -139,28 +137,20 @@ function ListenerRoom() {
   // Auto-scroll feed
   useEffect(() => {
     feedRef.current?.scrollTo({ top: feedRef.current.scrollHeight, behavior: "smooth" });
-  }, [lines]);
+  }, [lines, liveCaption]);
 
-  function playNext() {
-    if (playingRef.current) return;
-    const next = audioQueueRef.current.shift();
-    if (!next) return;
-    playingRef.current = true;
-    const audio = audioElRef.current ?? new Audio();
-    audioElRef.current = audio;
-    audio.src = next;
-    audio.onended = () => { playingRef.current = false; playNext(); };
-    audio.onerror = () => { playingRef.current = false; playNext(); };
-    audio.play().catch(() => { playingRef.current = false; });
-  }
+  useEffect(() => { listenerRef.current?.setMuted(muted); }, [muted]);
+  useEffect(() => () => listenerRef.current?.stop(), []);
 
-  function startListening() {
+  async function startListening() {
     setListening(true);
-    // Unlock audio context on user gesture
-    const audio = audioElRef.current ?? new Audio();
-    audioElRef.current = audio;
-    audio.muted = false;
-    audio.play().catch(() => {});
+    const l = new LiveListener({
+      sessionId, lang,
+      onStats: (s) => setAudioState(s.state),
+      onCaptionDelta: (d) => setLiveCaption((c) => (c + d).slice(-400)),
+    });
+    listenerRef.current = l;
+    try { await l.start(); } catch { setAudioState("unavailable"); }
   }
 
   if (session === null) {
@@ -215,6 +205,9 @@ function ListenerRoom() {
             </p>
           ))
         )}
+        {liveCaption && (
+          <p className="text-xl md:text-2xl leading-relaxed text-foreground/70 font-display">{liveCaption}</p>
+        )}
       </div>
 
       <footer className="px-5 pb-8 pt-4 sticky bottom-0 surface/80 backdrop-blur border-t border-border">
@@ -231,7 +224,9 @@ function ListenerRoom() {
             <div className="flex items-center justify-between px-4 py-3 rounded-2xl surface-elevated border border-border">
               <div className="flex items-center gap-2">
                 <span className="size-2 rounded-full bg-rose-glow animate-pulse-dot" />
-                <span className="text-sm font-medium">Listening</span>
+                <span className="text-sm font-medium">
+                  {audioState === "live" ? "Listening" : audioState === "reconnecting" ? "Reconnecting…" : audioState === "connecting" ? "Connecting…" : audioState === "unavailable" ? "Audio unavailable" : audioState === "ended" ? "Broadcast ended" : "Listening"}
+                </span>
               </div>
               <button
                 onClick={() => setMuted((m) => !m)}
