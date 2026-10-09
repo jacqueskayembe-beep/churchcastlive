@@ -1,51 +1,51 @@
+# ChurchCast Real-Time Interpreter — Audit & Rebuild Plan
 
-## Goal
+## Technical audit (current state)
 
-Make ChurchCast voice-only. The preacher speaks; the backend transcribes, translates, and synthesizes the destination-language voice. Listeners hear the translated voice and see live captions.
+**Current pipeline (verified in code):**
+1. Broadcaster's browser opens ElevenLabs Scribe realtime STT (`MicCapture.tsx`, `scribe_v2_realtime`, VAD commit).
+2. Each committed phrase is sent to `translateCommitted` (server fn) → one Gemini 2.5 Pro call per target language via the gateway.
+3. Each translation inserts a `transcripts` row whose `audio_url` points at `/api/public/tts/$id`, a route that synthesizes ElevenLabs MP3 **on every listener request** (stock male voice "George").
+4. Listener rooms (`/room/$sessionId/$lang`) receive rows via Supabase Realtime and play MP3 clips back-to-back through a single `<audio>` element.
 
-## Changes
+**What is broken / root causes:**
+- **Segment-based, not continuous**: each ~15s phrase is a full STT→translate→TTS cycle; the listener hears discrete clips with gaps, not flowing speech.
+- **No live audio channel**: audio travels as per-segment MP3 files triggered by database rows; there is no persistent media path, so latency = STT commit + translation + full TTS synthesis + playback queueing.
+- **Repeated work and duplicated speech**: the TTS route re-synthesizes the same text per listener request; audio cache headers hide but don't fix this.
+- **No per-language continuity**: every translation call is stateless; no rolling context beyond the broadcaster's static context field.
+- **Wrong voice**: stock "George" voice, not the pastor's clone.
+- **No degradation handling**: if any step fails mid-session, the listener just hears silence — no status, no fallback.
 
-### 1. Frontend — dashboard becomes voice-only
-- Remove the "type to broadcast" textarea, send button, and `⌘/Ctrl+Enter` handler from `LiveBroadcast.tsx`.
-- Promote `MicCapture` to the primary control: prominent "Start broadcasting" / "Stop" mic button with live level meter and recording state.
-- Keep the source-language live transcript panel (now populated by Whisper) and the per-language room cards.
-- Each captured audio chunk is uploaded + sent to a `processChunk` server fn which runs STT → fan-out translate → TTS, then inserts a `transcripts` row per language with an `audio_url`.
+**What works and is reused:** Google OAuth + dashboard, two-stage booth creation (pending → live), QR codes/share links, `sessions`/`transcripts` tables + RLS, Supabase Realtime for captions and listener presence, ElevenLabs Scribe STT (proven in browser), NDI guidance, styling, public booth routes.
 
-### 2. Frontend — listener room
-- Audio-first: big "Tap to listen" pill that unlocks autoplay, then sequentially plays each new `audio_url` arriving on the realtime channel via a Web Audio queue.
-- Live captions: translated text fades in below the player as each chunk arrives (already plumbed via `transcripts` realtime; just render).
+## Target architecture (per your decisions)
 
-### 3. Backend pipeline (TanStack server functions, all on Lovable Cloud)
-New file `src/lib/pipeline.functions.ts`:
-- `processAudioChunk({ sessionId, audioBase64, mimeType })` — auth-gated to the session's broadcaster.
-  1. **STT**: POST audio to OpenAI `audio/transcriptions` (`whisper-1`), language = session.source_lang. Insert source-language `transcripts` row.
-  2. **Translate (parallel)**: for each `target_lang`, call Lovable AI Gateway (`google/gemini-3-flash-preview`) — keeps existing `translateChunk` logic.
-  3. **TTS (parallel)**: for each translation, POST to OpenAI `audio/speech` (`gpt-4o-mini-tts`, voice `alloy`, format `mp3`).
-  4. Upload each MP3 to a new public Storage bucket `broadcast-audio` at `{sessionId}/{lang}/{uuid}.mp3`.
-  5. Insert one `transcripts` row per target language with `text` + `audio_url`.
+```
+Pastor mic / NDI (browser)
+  → ElevenLabs Scribe realtime STT (kept — works)
+  → OpenAI gpt-realtime-translate  (persistent server WebSocket session)
+  → streaming translated text + translated speech per language
+  → ElevenLabs TTS with the pastor's cloned voice (IxJypvU0tw5K9RWyTN8y)
+  → LiveKit: one audio track per target language, unlimited listeners
+  → listener room: LiveKit audio + Supabase Realtime captions (unchanged UI)
+```
 
-All three providers run inside one server fn so a single round-trip from the browser per chunk delivers everything via realtime to listeners.
+Modular adapters wrap each step so OpenAI/Scribe/Gemini can be swapped without touching the UI (master-prompt requirement).
 
-### 4. Storage + secrets
-- Create public Storage bucket `broadcast-audio` with broadcaster-only insert policy and public read.
-- Add secret `OPENAI_API_KEY` (used for both Whisper and TTS).
+## Implementation steps
 
-### 5. MicCapture cleanup
-- Keep silence-boundary chunking (already implemented).
-- Replace local queue/preview UI with auto-upload-on-finalize calling `processAudioChunk`. Show per-chunk status (uploading → transcribing → broadcasting → done / error).
+1. **Secrets & accounts (needs you)**
+   - Request LiveKit Cloud credentials (URL, API key, API secret) via the secure form — create a free LiveKit Cloud project first.
+   - Verify `OPENAI_API_KEY` has Realtime access; confirm the exact `gpt-realtime-translate` model ID against OpenAI's current API docs. If it is unavailable, fall back to Scribe STT + a gateway translation model, keeping the same adapter interface.
+2. **Voice profile**: store the pastor's clone voice ID (IxJypvU0tw5K9RWyTN8y) in the sessions/voice configuration so TTS uses it everywhere; male-only voice preserved.
+3. **Realtime translation session (server route)**: a WebSocket-based server route holds one persistent OpenAI Realtime session per live broadcast. Broadcaster audio (relayed from the browser) streams in; translated text and audio stream out per target language. Speech-aware segmentation buffers translated text into speakable sentences before TTS.
+4. **TTS with cloned voice**: ElevenLabs streaming TTS using the pastor voice ID, fed sentence-by-sentence; tone/energy matched from the source audio (excited stays excited).
+5. **LiveKit distribution**: broadcaster's session creates a LiveKit room (one per session); the server publishes one audio track per target language; a public token endpoint issues listener join tokens for a single room/language — no login required.
+6. **Listener room rewrite**: same peaceful UI, but audio joins via LiveKit ( Tap to Listen → connect + subscribe to the language track). Captions still flow through Supabase Realtime. Fallback to the existing MP3-clip playback if LiveKit is unreachable.
+7. **Diagnostics & resilience**: latency logging per pipeline stage, live error surface on the dashboard, auto-reconnect for the realtime session, listener "reconnecting" state.
+8. **Verification**: end-to-end test with a real broadcast — speak, confirm caption + audible translated voice on a booth within target latency, multiple listeners, stop/restart.
 
-### 6. Files
-- Edit: `src/components/dashboard/LiveBroadcast.tsx`, `src/components/dashboard/MicCapture.tsx`, `src/components/dashboard/LanguageRoomCard.tsx` (remove text-typing affordances if any), `src/routes/room.$sessionId.$lang.tsx` (audio queue + captions).
-- Create: `src/lib/pipeline.functions.ts`, `src/lib/audio-queue.ts` (listener-side sequential MP3 player).
-- Delete: nothing structural; `translateChunk` stays as a helper but is no longer called from the browser.
-- Migration: create `broadcast-audio` bucket + storage policies.
+## Notes
 
-## Tradeoffs / notes
-
-- **Latency budget per chunk**: Whisper ~1–2s + Gemini translate ~0.5–1s + OpenAI TTS ~1–2s per language, in parallel = ~3–5s end-to-end per sentence. Well under 10s.
-- **Chunking**: silence-boundary (already chosen). 1.2–8s sentences.
-- **Cost**: OpenAI is billed to the user's `OPENAI_API_KEY`. Gemini translation stays on Lovable AI Gateway.
-- **Public route SSR**: `room.$sessionId.$lang.tsx` keeps SSR for the page shell + OG tags; realtime + audio queue mount client-side.
-- **No live mic streaming protocol** (WebSocket/Deepgram) in v1; sentence-chunked REST keeps things robust on the Cloudflare Worker runtime.
-
-Ready to build on approval.
+- Staying inside Lovable first: the persistent WebSocket session is the riskiest piece in this environment; if the edge runtime blocks it, the plan falls back to Scribe STT + gateway translation + ElevenLabs cloned TTS over LiveKit (same listener experience), and we revisit a dedicated backend only if needed.
+- Existing authentication, dashboard, booths, QR codes, database records, and styling are preserved.
