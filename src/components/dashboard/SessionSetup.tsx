@@ -21,7 +21,7 @@ interface Props {
 export function SessionSetup({ onStart }: Props) {
   const [churchName, setChurchName] = useState("");
   const [sourceLang, setSourceLang] = useState("en");
-  const [targetLangs, setTargetLangs] = useState<string[]>(["es", "fr"]);
+  const [targetLangs, setTargetLangs] = useState<string[]>(["es", "fr", "pt"]);
   const [context, setContext] = useState("");
   const [audioSource, setAudioSource] = useState<"mic" | "device">("mic");
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);

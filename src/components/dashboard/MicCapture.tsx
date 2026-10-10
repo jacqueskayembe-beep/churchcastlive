@@ -50,7 +50,7 @@ export function MicCapture({ sessionId, deviceId }: Props) {
         microphone: { deviceId, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       });
       connectionRef.current = connection;
-      connection.on(RealtimeEvents.OPEN, () => setConnecting(false));
+      connection.on(RealtimeEvents.OPEN, () => { setConnecting(false); setRecording(true); });
       connection.on(RealtimeEvents.SESSION_STARTED, () => setRecording(true));
       connection.on(RealtimeEvents.PARTIAL_TRANSCRIPT, (data) => setPartial(data.text || ""));
       connection.on(RealtimeEvents.COMMITTED_TRANSCRIPT, (data) => {

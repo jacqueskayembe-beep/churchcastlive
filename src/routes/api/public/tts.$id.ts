@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
-// Single shared male voice (George) — multilingual model handles all target langs.
-const VOICE_ID = "JBFqnCBsd6RMkjVDRZzb";
+// Pastor cloned voice (ElevenLabs) — used for every target language.
+const VOICE_ID = "IxJypvU0tw5K9RWyTN8y";
 
 export const Route = createFileRoute("/api/public/tts/$id")({
   server: {
@@ -30,7 +30,7 @@ export const Route = createFileRoute("/api/public/tts/$id")({
         }
 
         const ttsRes = await fetch(
-          `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}/stream?output_format=mp3_44100_128`,
+          `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}/stream?output_format=mp3_44100_128&optimize_streaming_latency=3`,
           {
             method: "POST",
             headers: {
@@ -39,7 +39,7 @@ export const Route = createFileRoute("/api/public/tts/$id")({
             },
             body: JSON.stringify({
               text: row.text,
-              model_id: "eleven_turbo_v2_5",
+              model_id: "eleven_flash_v2_5",
               voice_settings: {
                 stability: 0.5,
                 similarity_boost: 0.75,
