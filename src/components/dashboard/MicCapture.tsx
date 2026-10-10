@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Mic, MicOff, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
-import { LiveBroadcaster, type BroadcasterEvent } from "@/lib/live-audio";
-import { getLanguage } from "@/lib/languages";
+import { CommitStrategy, RealtimeEvents, Scribe, type RealtimeConnection } from "@elevenlabs/client";
+import { getScribeToken, translateCommitted } from "@/lib/realtime-pipeline.functions";
 
 interface Props {
   sessionId: string;
@@ -14,67 +13,86 @@ export function MicCapture({ sessionId, deviceId }: Props) {
   const [connecting, setConnecting] = useState(false);
   const [recording, setRecording] = useState(false);
   const [streamError, setStreamError] = useState<string | null>(null);
-  const [source, setSource] = useState("");
-  const [statuses, setStatuses] = useState<Record<string, string>>({});
-  const [latency, setLatency] = useState<Record<string, number>>({});
-  const [level, setLevel] = useState(0);
-  const bRef = useRef<LiveBroadcaster | null>(null);
+  const [partial, setPartial] = useState("");
+  const [recent, setRecent] = useState<string[]>([]);
+  const inFlightRef = useRef(0);
+  const connectionRef = useRef<RealtimeConnection | null>(null);
 
-  const onEvent = useCallback((e: BroadcasterEvent) => {
-    if (e.type === "source_delta") setSource((s) => (s + e.delta).slice(-600));
-    if (e.type === "status") setStatuses((p) => ({ ...p, [e.lang]: e.status }));
-    if (e.type === "latency") setLatency((p) => ({ ...p, [e.lang]: e.ms }));
-    if (e.type === "error") { setStreamError(e.message); toast.error(e.message); }
-    if (e.type === "closed") {
-      setRecording(false);
-      setStreamError("Connection to the live audio server was lost. Tap to reconnect.");
-      bRef.current = null;
-    }
-  }, []);
+  const handleCommitted = useCallback(
+    async (text: string) => {
+      const clean = text.trim();
+      if (!clean) return;
+      setRecent((p) => [...p, clean].slice(-6));
+      inFlightRef.current += 1;
+      try {
+        const res = await translateCommitted({ data: { sessionId, text: clean } });
+        if (!res.ok) toast.error(res.error);
+      } catch (e) {
+        toast.error((e as Error).message || "Translate failed");
+      } finally {
+        inFlightRef.current -= 1;
+      }
+    },
+    [sessionId],
+  );
 
   const start = useCallback(async () => {
-    if (bRef.current) return;
+    if (connectionRef.current) return;
     setConnecting(true);
     setStreamError(null);
     try {
-      const { data } = await supabase.auth.getSession();
-      const token = data.session?.access_token;
-      if (!token) throw new Error("Please sign in again.");
-      const b = new LiveBroadcaster({ sessionId, token, deviceId, onEvent });
-      bRef.current = b;
-      await b.start();
-      setRecording(true);
+      const tok = await getScribeToken({ data: undefined });
+      if (!tok.ok) throw new Error(tok.error);
+      const connection = Scribe.connect({
+        token: tok.token,
+        modelId: "scribe_v2_realtime",
+        commitStrategy: CommitStrategy.VAD,
+        microphone: { deviceId, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+      connectionRef.current = connection;
+      connection.on(RealtimeEvents.OPEN, () => setConnecting(false));
+      connection.on(RealtimeEvents.SESSION_STARTED, () => setRecording(true));
+      connection.on(RealtimeEvents.PARTIAL_TRANSCRIPT, (data) => setPartial(data.text || ""));
+      connection.on(RealtimeEvents.COMMITTED_TRANSCRIPT, (data) => {
+        setPartial("");
+        handleCommitted(data.text || "");
+      });
+      connection.on(RealtimeEvents.ERROR, (error) => {
+        const message = error instanceof Error ? error.message : "error" in error ? error.error : "Streaming error";
+        setStreamError(message);
+        toast.error(message);
+      });
+      connection.on(RealtimeEvents.CLOSE, () => {
+        connectionRef.current = null;
+        setConnecting(false);
+        setRecording(false);
+      });
     } catch (e) {
-      bRef.current?.stop();
-      bRef.current = null;
-      const msg = (e as Error).message || "Could not start broadcasting";
-      setStreamError(msg);
-      toast.error(msg);
-    } finally {
+      connectionRef.current = null;
+      setRecording(false);
+      setStreamError((e as Error).message || "Could not start streaming");
+      toast.error((e as Error).message || "Could not start streaming");
       setConnecting(false);
     }
-  }, [sessionId, deviceId, onEvent]);
+  }, [deviceId, handleCommitted]);
 
   const stop = useCallback(() => {
-    bRef.current?.stop();
-    bRef.current = null;
+    try { connectionRef.current?.close(); } catch { /* noop */ }
+    connectionRef.current = null;
+    setConnecting(false);
     setRecording(false);
   }, []);
 
-  useEffect(() => {
-    if (!recording) return;
-    const t = setInterval(() => setLevel(bRef.current?.level ?? 0), 150);
-    return () => clearInterval(t);
-  }, [recording]);
+  useEffect(() => () => { try { connectionRef.current?.close(); } catch { /* noop */ } }, []);
 
-  useEffect(() => () => bRef.current?.stop(), []);
+  const busy = connecting;
 
   return (
     <div className="surface-elevated border border-border rounded-2xl p-6 space-y-5">
       <div className="flex items-center gap-5">
         <button
           onClick={recording ? stop : start}
-          disabled={connecting}
+          disabled={busy}
           className={`size-20 rounded-full grid place-items-center transition shadow-glow ${
             recording
               ? "bg-rose-glow text-white animate-pulse-dot"
@@ -87,36 +105,27 @@ export function MicCapture({ sessionId, deviceId }: Props) {
         </button>
         <div className="flex-1">
           <p className="font-display text-2xl">
-            {recording ? "Streaming live…" : connecting ? "Connecting…" : "Tap to start broadcasting"}
+            {recording ? "Streaming live…" : busy ? "Connecting…" : "Tap to start broadcasting"}
           </p>
           <p className="text-xs text-muted-foreground mt-1">
-            Continuous live interpretation in the pastor's voice — no waiting for pauses.
+            Real-time streaming transcription. Each phrase is translated and spoken aloud the moment you pause.
           </p>
-          {recording && (
-            <div className="mt-2 h-1.5 w-48 rounded-full bg-secondary overflow-hidden" aria-label="Input level">
-              <div className="h-full bg-primary transition-all" style={{ width: `${Math.min(100, level * 140)}%` }} />
-            </div>
-          )}
           {streamError && <p className="text-xs text-destructive mt-2">{streamError}</p>}
         </div>
       </div>
 
-      {recording && Object.keys(statuses).length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          {Object.entries(statuses).map(([lang, s]) => (
-            <span key={lang} className="text-xs px-2.5 py-1 rounded-full border border-border bg-background/40">
-              {getLanguage(lang).flag} {s}
-              {latency[lang] != null && ` · ${(latency[lang] / 1000).toFixed(1)}s`}
-            </span>
-          ))}
-        </div>
-      )}
-
-      {source && (
+      {(partial || recent.length > 0) && (
         <div>
-          <h3 className="text-xs uppercase tracking-wider text-muted-foreground mb-2">Live capture</h3>
-          <div className="bg-background/40 border border-border rounded-lg p-3 text-sm max-h-44 overflow-y-auto">
-            <p className="text-foreground/80">{source}</p>
+          <h3 className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
+            Live capture
+          </h3>
+          <div className="bg-background/40 border border-border rounded-lg p-3 text-sm space-y-1 max-h-44 overflow-y-auto">
+            {recent.map((t, i) => (
+              <p key={i} className="text-foreground/80 animate-fade-up">{t}</p>
+            ))}
+            {partial && (
+              <p className="text-muted-foreground italic">{partial}…</p>
+            )}
           </div>
         </div>
       )}
